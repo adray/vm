@@ -1,0 +1,5 @@
+; Test 64 bit adds
+; Run with --x64
+STORE1 1000
+STORE2 50
+ADD S1, S2

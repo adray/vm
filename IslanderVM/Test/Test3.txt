@@ -1,0 +1,4 @@
+; Test comments
+STORE1 200; store 200
+  ; do program
+STORE2 10

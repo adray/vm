@@ -1,0 +1,5 @@
+; Test DIV
+STORE1 20
+STORE2 5
+STORE3 55 ; stores in EDX which is overwritten by IDIV, make sure is restored
+DIV S1, S2 ; S1 = S1 / S2
