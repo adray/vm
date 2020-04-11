@@ -1,0 +1,23 @@
+; Structures
+STRUCTURE MyStruct
+    FIELD 4
+    FIELD 4
+    FIELD 2
+END
+
+;STRUCTURE MyString
+;    FIELD 4
+;    FIELD ARRAY 4,128
+;END
+
+;PUSH MyStruct : M1, M2, M3
+;PUSH MyString : M4, M5
+
+;STORE1 1
+;ADD M4, S1
+
+
+;POP MyString
+;POP MyStruct
+
+

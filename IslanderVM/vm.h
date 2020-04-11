@@ -1,6 +1,9 @@
 #pragma once
 #include <vector>
 
+#define VM_STRUCTURE_MAX_NAME 128
+#define VM_STRUCTURE_MAX_FIELD 128
+
 enum vm_code
 {
     VM_NOP = 0x0,
@@ -24,6 +27,19 @@ struct vm_operation
     vm_code code;
     int arg1;
     int arg2;
+};
+
+struct vm_field
+{
+    int size;
+    int array_size;
+};
+
+struct vm_structure
+{
+    int fieldcount;
+    char name[VM_STRUCTURE_MAX_NAME];
+    vm_field fields[VM_STRUCTURE_MAX_FIELD];
 };
 
 struct vm_options

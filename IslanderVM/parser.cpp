@@ -21,6 +21,9 @@ enum vm_token
     VM_TOKEN_STORE2 = 0x21,
     VM_TOKEN_STORE3 = 0x22,
     VM_TOKEN_STORE4 = 0x23,
+    VM_TOKEN_END = 0x30,
+    VM_TOKEN_STRUCTURE = 0x31,
+    VM_TOKEN_FIELD=0x32,
     VM_TOKEN_LOCATION1 = 0x90,
     VM_TOKEN_LOCATION2 = 0x91,
     VM_TOKEN_LOCATION3 = 0x92,
@@ -142,6 +145,18 @@ void get_next_token(const std::string& line, int* pos, vm_token* token)
     {
         *token = VM_TOKEN_LOCATION4;
     }
+    else if (strcmp(data, "STRUCTURE") == 0)
+    {
+        *token = VM_TOKEN_STRUCTURE;
+    }
+    else if (strcmp(data, "FIELD") == 0)
+    {
+        *token = VM_TOKEN_FIELD;
+    }
+    else if (strcmp(data, "END") == 0)
+    {
+        *token = VM_TOKEN_END;
+    }
     else
     {
         *token = VM_TOKEN_LITERAL;
@@ -253,6 +268,96 @@ bool read_vm_mul(const std::string& input, int* pos, int* start, vm_token* token
     return read_vm_binary_op(input, pos, start, token, op, VM_MUL);
 }
 
+void read_vm_structure_name(const std::string& input, int start, char* name)
+{
+    char* end = name + VM_STRUCTURE_MAX_NAME;
+    bool eatingWhitespace = true;
+    for (; start < input.length() && name < end - 1; start++)
+    {
+        if (input[start] == ' ')
+        {
+            if (eatingWhitespace)
+            {
+                continue;
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        if (input[start] == '\n')
+        {
+            break;
+        }
+        
+        if (input[start] == ';')
+        {
+            break;
+        }
+
+        *name = input[start];
+        name++;
+        eatingWhitespace = false;
+    }
+
+    *name = '\0';
+}
+
+bool read_vm_struct(const std::string& input, int* pos, int* start, vm_token* token, vm_structure* structure)
+{
+    *start = *pos;
+    get_next_token(input, pos, token);
+    if (*token != VM_TOKEN_LITERAL)
+    {
+        // error
+        return false;
+    }
+
+    read_vm_structure_name(input, *start, structure->name);
+
+    structure->fieldcount = 0;
+
+    while (*token != VM_TOKEN_EOF)
+    {
+        *start = *pos;
+        get_next_token(input, pos, token);
+        if (*token == VM_TOKEN_FIELD)
+        {
+            *start = *pos;
+            get_next_token(input, pos, token);
+            if (*token == VM_TOKEN_LITERAL)
+            {
+                const char* ptr = input.c_str();
+                int size = strtol(ptr + (*start), 0, 10);
+                
+                if (structure->fieldcount == VM_STRUCTURE_MAX_FIELD)
+                {
+                    // error
+                    return false;
+                }
+
+                vm_field* field = &structure->fields[structure->fieldcount];
+                field->size = size;
+                field->array_size = 0;
+                structure->fieldcount++;
+            }
+        }
+        else if (*token == VM_TOKEN_END)
+        {
+            return true;
+        }
+        else
+        {
+            // error
+            return false;
+        }
+    }
+
+    // error
+    return false;
+}
+
 void set_error(char* errorOutput, char* errorMsg, int maxErrorLength, const std::string& str, int pos, int end)
 {
     std::stringstream stream;
@@ -269,6 +374,7 @@ void set_error(char* errorOutput, char* errorMsg, int maxErrorLength, const std:
 bool load_file_and_execute(const char* filename, const vm_options& options, char* errorText, int errorLength)
 {
     std::vector<vm_operation> operations;
+    std::vector<vm_structure> structures;
 
     std::string str;
     std::ifstream stream;
@@ -361,6 +467,20 @@ bool load_file_and_execute(const char* filename, const vm_options& options, char
             {
                 success = false;
                 set_error(errorText, "Error: Unexpected token parsing MUL", errorLength, str, start, pos);
+                break;
+            }
+        }
+        else if (token == VM_TOKEN_STRUCTURE)
+        {
+            vm_structure structure;
+            if (read_vm_struct(str, &pos, &start, &token, &structure))
+            {
+                structures.push_back(structure);
+            }
+            else
+            {
+                success = false;
+                set_error(errorText, "Error: Unexpected token parsing STRUCTURE", errorLength, str, start, pos);
                 break;
             }
         }
