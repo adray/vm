@@ -6,6 +6,14 @@
 #include <streambuf>
 #include "vm.h"
 
+#define VM_DECL_NAME_MAX_SIZE 256
+
+struct vm_decl_name
+{
+    int typeId;
+    char name[VM_DECL_NAME_MAX_SIZE];
+};
+
 enum vm_token
 {
     VM_TOKEN_NONE = 0x0,
@@ -13,6 +21,7 @@ enum vm_token
     VM_TOKEN_SUB = 0x2,
     VM_TOKEN_MUL = 0x3,
     VM_TOKEN_DIV = 0x4,
+    VM_TOKEN_MOV = 0x5,
     VM_TOKEN_LOAD1 = 0x10,
     VM_TOKEN_LOAD2 = 0x11,
     VM_TOKEN_LOAD3 = 0x12,
@@ -23,28 +32,86 @@ enum vm_token
     VM_TOKEN_STORE4 = 0x23,
     VM_TOKEN_END = 0x30,
     VM_TOKEN_STRUCTURE = 0x31,
-    VM_TOKEN_FIELD=0x32,
+    VM_TOKEN_FIELD = 0x32,
+    VM_TOKEN_DECLARE = 0x33,
     VM_TOKEN_LOCATION1 = 0x90,
     VM_TOKEN_LOCATION2 = 0x91,
     VM_TOKEN_LOCATION3 = 0x92,
     VM_TOKEN_LOCATION4 = 0x93,
     VM_TOKEN_LITERAL = 0x100,
     VM_TOKEN_SEPERATOR = 0x101,
+    VM_TOKEN_COLON = 0x102,
+    VM_TOKEN_DOT = 0x103,
     VM_TOKEN_EOF = 0x1000
 };
 
-void get_next_token(const std::string& line, int* pos, vm_token* token)
+int find_vm_decl_const(vm_decl_name& decl, const std::vector<vm_decl_name>& decls)
 {
-    if (line[*pos] == ',')
+    int declId = -1;
+    for (int i = 0; i < decls.size(); i++)
     {
-        *token = VM_TOKEN_SEPERATOR;
-        (*pos)++;
-        return;
+        if (strcmp(decl.name, decls[i].name) == 0)
+        {
+            declId = i;
+            decl.typeId = decls[i].typeId;
+            break;
+        }
     }
 
+    return declId;
+}
+
+void read_vm_identifier(const std::string& input, int start, char* name, int maxLength)
+{
+    char* end = name + maxLength;
+    bool eatingWhitespace = true;
+    for (; start < input.length() && name < end - 1; start++)
+    {
+        if (input[start] == ' ')
+        {
+            if (eatingWhitespace)
+            {
+                continue;
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        if (input[start] == '\n')
+        {
+            break;
+        }
+
+        if (input[start] == ';')
+        {
+            break;
+        }
+
+        if (input[start] == '.')
+        {
+            break;
+        }
+
+        if (input[start] == ',')
+        {
+            break;
+        }
+
+        *name = input[start];
+        name++;
+        eatingWhitespace = false;
+    }
+
+    *name = '\0';
+}
+
+void get_next_token(const std::string& line, int* pos, vm_token* token)
+{
     for (; *pos < line.size(); (*pos)++)
     {
-        if (line[*pos] != ' ')
+        if (line[*pos] != ' ' && line[*pos] != '\n')
         {
             break;
         }
@@ -63,6 +130,27 @@ void get_next_token(const std::string& line, int* pos, vm_token* token)
         return get_next_token(line, pos, token);
     }
 
+    if (line[*pos] == ',')
+    {
+        *token = VM_TOKEN_SEPERATOR;
+        (*pos)++;
+        return;
+    }
+
+    if (line[*pos] == ':')
+    {
+        *token = VM_TOKEN_COLON;
+        (*pos)++;
+        return;
+    }
+
+    if (line[*pos] == '.')
+    {
+        *token = VM_TOKEN_DOT;
+        (*pos)++;
+        return;
+    }
+
     int data_pos = 0;
     char data[128];
     for (; *pos < line.size(); (*pos)++)
@@ -72,6 +160,14 @@ void get_next_token(const std::string& line, int* pos, vm_token* token)
             break;
         }
         else if (line[*pos] == ',')
+        {
+            break;
+        }
+        else if (line[*pos] == '.')
+        {
+            break;
+        }
+        else if (line[*pos] == ':')
         {
             break;
         }
@@ -112,6 +208,10 @@ void get_next_token(const std::string& line, int* pos, vm_token* token)
     else if (strcmp(data, "MUL") == 0)
     {
         *token = VM_TOKEN_MUL;
+    }
+    else if (strcmp(data, "MOV") == 0)
+    {
+        *token = VM_TOKEN_MOV;
     }
     else if (strcmp(data, "STORE1") == 0)
     {
@@ -157,13 +257,17 @@ void get_next_token(const std::string& line, int* pos, vm_token* token)
     {
         *token = VM_TOKEN_END;
     }
+    else if (strcmp(data, "DECLARE") == 0)
+    {
+        *token = VM_TOKEN_DECLARE;
+    }
     else
     {
         *token = VM_TOKEN_LITERAL;
     }
 }
 
-bool read_vm_store(const std::string& input, int* pos, int* start, vm_token* token, vm_operation* op)
+bool read_vm_store(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure> structs, int* pos, int* start, vm_token* token, vm_operation* op)
 {
     vm_token store = *token;
 
@@ -172,10 +276,59 @@ bool read_vm_store(const std::string& input, int* pos, int* start, vm_token* tok
     if (*token == VM_TOKEN_LITERAL)
     {
         op->code = (vm_code)store; // kinda hack
-        const char* ptr = input.c_str();
-        op->arg1 = strtol(ptr + (*start), 0, 10);
-        op->arg2 = 0;
-        return true;
+
+        vm_decl_name decl;
+        read_vm_identifier(input, *start, decl.name, sizeof(decl.name));
+        int declId = find_vm_decl_const(decl, decls);
+        if (declId == -1) // standard literal
+        {
+            const char* ptr = input.c_str();
+            op->arg1 = strtol(ptr + (*start), 0, 10);
+            op->arg2 = 0;
+            return true;
+        }
+        else
+        {
+            *start = *pos;
+            get_next_token(input, pos, token);
+            if (*token != VM_TOKEN_DOT)
+            {
+                // error
+                return false;
+            }
+
+            *start = *pos;
+            get_next_token(input, pos, token);
+            if (*token != VM_TOKEN_LITERAL)
+            {
+                // error
+                return false;
+            }
+
+            char fieldname[VM_FIELD_MAX_NAME];
+            read_vm_identifier(input, *start, fieldname, sizeof(fieldname));
+
+            int fieldOffset = -1;
+            vm_structure type = structs[decl.typeId];
+            for (int i = 0; i < type.fieldcount; i++)
+            {
+                if (strcmp(fieldname, type.fields[i].name) == 0)
+                {
+                    fieldOffset = i;
+                    break;
+                }
+            }
+
+            if (fieldOffset == -1)
+            {
+                // error
+                return false;
+            }
+
+            op->arg1 = (declId << 16) | fieldOffset;
+            op->arg2 = 1;
+            return true;
+        }
     }
     else
     {
@@ -184,10 +337,61 @@ bool read_vm_store(const std::string& input, int* pos, int* start, vm_token* tok
     }
 }
 
-bool read_vm_binary_op(const std::string& input, int* pos, int* start, vm_token* token, vm_operation* op, vm_code code)
+bool read_vm_field(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure> structs, int* pos, int* start, vm_token* token, int* declId, int* fieldOffset)
+{
+    vm_decl_name decl;
+    read_vm_identifier(input, *start, decl.name, sizeof(decl.name));
+    *declId = find_vm_decl_const(decl, decls);
+    if (*declId == -1)
+    {
+        // error
+        return false;
+    }
+
+    *start = *pos;
+    get_next_token(input, pos, token);
+    if (*token != VM_TOKEN_DOT)
+    {
+        // error
+        return false;
+    }
+
+    *start = *pos;
+    get_next_token(input, pos, token);
+    if (*token != VM_TOKEN_LITERAL)
+    {
+        // error
+        return false;
+    }
+
+    char fieldname[VM_FIELD_MAX_NAME];
+    read_vm_identifier(input, *start, fieldname, sizeof(fieldname));
+
+    *fieldOffset = -1;
+    vm_structure type = structs[decl.typeId];
+    for (int i = 0; i < type.fieldcount; i++)
+    {
+        if (strcmp(fieldname, type.fields[i].name) == 0)
+        {
+            *fieldOffset = i;
+            break;
+        }
+    }
+
+    if (*fieldOffset == -1)
+    {
+        // error
+        return false;
+    }
+
+    return true;
+}
+
+bool read_vm_binary_op(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure>& structs, int* pos, int* start, vm_token* token, vm_operation* op, vm_code code)
 {
     vm_token store = *token;
     op->code = code;
+    op->flags = 0;
 
     *start = *pos;
     get_next_token(input, pos, token);
@@ -206,6 +410,20 @@ bool read_vm_binary_op(const std::string& input, int* pos, int* start, vm_token*
     else if (*token == VM_TOKEN_LOCATION4)
     {
         op->arg1 = 3;
+    }
+    else if (*token == VM_TOKEN_LITERAL)
+    {
+        int delcId;
+        int field;
+        bool res = read_vm_field(input, decls, structs, pos, start, token, &delcId, &field);
+        if (!res)
+        {
+            // error
+            return false;
+        }
+
+        op->flags |= VM_OPERATION_FLAGS_FIELD1;
+        op->arg1 = (delcId << 16) | field;
     }
     else
     {
@@ -239,6 +457,20 @@ bool read_vm_binary_op(const std::string& input, int* pos, int* start, vm_token*
     {
         op->arg2 = 3;
     }
+    else if (*token == VM_TOKEN_LITERAL)
+    {
+        int declId;
+        int field;
+        bool res = read_vm_field(input, decls, structs, pos, start, token, &declId, &field);
+        if (!res)
+        {
+            // error
+            return false;
+        }
+
+        op->flags |= VM_OPERATION_FLAGS_FIELD2;
+        op->arg2 = (declId << 16) | field;
+    }
     else
     {
         // error
@@ -248,60 +480,113 @@ bool read_vm_binary_op(const std::string& input, int* pos, int* start, vm_token*
     return true;
 }
 
-bool read_vm_add(const std::string& input, int* pos, int* start, vm_token* token, vm_operation* op)
+bool read_vm_add(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure>& structs, int* pos, int* start, vm_token* token, vm_operation* op)
 {
-    return read_vm_binary_op(input, pos, start, token, op, VM_ADD);
+    return read_vm_binary_op(input, decls, structs, pos, start, token, op, VM_ADD);
 }
 
-bool read_vm_sub(const std::string& input, int* pos, int* start, vm_token* token, vm_operation* op)
+bool read_vm_sub(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure>& structs, int* pos, int* start, vm_token* token, vm_operation* op)
 {
-    return read_vm_binary_op(input, pos, start, token, op, VM_SUB);
+    return read_vm_binary_op(input, decls, structs, pos, start, token, op, VM_SUB);
 }
 
-bool read_vm_div(const std::string& input, int* pos, int* start, vm_token* token, vm_operation* op)
+bool read_vm_div(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure>& structs, int* pos, int* start, vm_token* token, vm_operation* op)
 {
-    return read_vm_binary_op(input, pos, start, token, op, VM_DIV);
+    return read_vm_binary_op(input, decls, structs, pos, start, token, op, VM_DIV);
 }
 
-bool read_vm_mul(const std::string& input, int* pos, int* start, vm_token* token, vm_operation* op)
+bool read_vm_mul(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure>& structs, int* pos, int* start, vm_token* token, vm_operation* op)
 {
-    return read_vm_binary_op(input, pos, start, token, op, VM_MUL);
+    return read_vm_binary_op(input, decls, structs, pos, start, token, op, VM_MUL);
+}
+
+bool read_vm_mov(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure>& structs, int* pos, int* start, vm_token* token, vm_operation* op)
+{
+    return read_vm_binary_op(input, decls, structs, pos, start, token, op, VM_MOV);
 }
 
 void read_vm_structure_name(const std::string& input, int start, char* name)
 {
-    char* end = name + VM_STRUCTURE_MAX_NAME;
-    bool eatingWhitespace = true;
-    for (; start < input.length() && name < end - 1; start++)
+    read_vm_identifier(input, start, name, VM_STRUCTURE_MAX_NAME);
+}
+
+void read_vm_field_name(const std::string& input, int start, char* name)
+{
+    read_vm_identifier(input, start, name, VM_FIELD_MAX_NAME);
+}
+
+int add_vm_decl(const vm_decl_name& decl, std::vector<vm_decl_name>& decls)
+{
+    int declId = -1;
+    for (int i = 0; i < decls.size(); i++)
     {
-        if (input[start] == ' ')
+        if (strcmp(decl.name, decls[i].name) == 0)
         {
-            if (eatingWhitespace)
-            {
-                continue;
-            }
-            else
-            {
-                break;
-            }
-        }
-
-        if (input[start] == '\n')
-        {
+            declId = i;
             break;
         }
-        
-        if (input[start] == ';')
-        {
-            break;
-        }
-
-        *name = input[start];
-        name++;
-        eatingWhitespace = false;
     }
 
-    *name = '\0';
+    decls.push_back(decl);
+    return decls.size() - 1;
+}
+
+bool read_vm_declare(const std::vector<vm_structure>& structs, std::vector<vm_decl_name>& decls, const std::string& input, int* pos, int* start, vm_token* token, vm_operation* operation)
+{
+    *start = *pos;
+    get_next_token(input, pos, token);
+    if (*token != VM_TOKEN_LITERAL)
+    {
+        // error
+        return false;
+    }
+
+    // the type of the field
+    char type[VM_STRUCTURE_MAX_NAME];
+    read_vm_identifier(input, *start, type, sizeof(type));
+    int typeId = -1;
+    for (int i = 0; i < structs.size(); i++)
+    {
+        if (strcmp(type, structs[i].name) == 0)
+        {
+            typeId = i;
+            break;
+        }
+    }
+
+    if (typeId == -1)
+    {
+        // error - unknown type
+        return false;
+    }
+
+    *start = *pos;
+    get_next_token(input, pos, token);
+    if (*token != VM_TOKEN_COLON)
+    {
+        // error
+        return false;
+    }
+    
+    *start = *pos;
+    get_next_token(input, pos, token);
+    if (*token != VM_TOKEN_LITERAL)
+    {
+        // error
+        return false;
+    }
+
+    // the name of the field
+    vm_decl_name decl;
+    decl.typeId = typeId;
+    read_vm_identifier(input, *start, decl.name, sizeof(decl.name));
+    int declId = add_vm_decl(decl, decls);
+
+    operation->code = VM_DECLARE;
+    operation->arg1 = typeId;
+    operation->arg2 = declId;
+
+    return true;
 }
 
 bool read_vm_struct(const std::string& input, int* pos, int* start, vm_token* token, vm_structure* structure)
@@ -337,9 +622,35 @@ bool read_vm_struct(const std::string& input, int* pos, int* start, vm_token* to
                     return false;
                 }
 
+                *start = *pos;
+                get_next_token(input, pos, token);
+                if (*token != VM_TOKEN_COLON)
+                {
+                    // error
+                    return false;
+                }
+
+                *start = *pos;
+                get_next_token(input, pos, token);
+                if (*token != VM_TOKEN_LITERAL)
+                {
+                    // error
+                    return false;
+                }
+
                 vm_field* field = &structure->fields[structure->fieldcount];
                 field->size = size;
                 field->array_size = 0;
+                if (structure->fieldcount == 0)
+                {
+                    field->offset = 0;
+                }
+                else
+                {
+                    vm_field* prev = &structure->fields[structure->fieldcount - 1];
+                    field->offset = prev->offset + prev->size;
+                }
+                read_vm_field_name(input, *start, field->name);
                 structure->fieldcount++;
             }
         }
@@ -375,6 +686,7 @@ bool load_file_and_execute(const char* filename, const vm_options& options, char
 {
     std::vector<vm_operation> operations;
     std::vector<vm_structure> structures;
+    std::vector<vm_decl_name> decls;
 
     std::string str;
     std::ifstream stream;
@@ -407,7 +719,7 @@ bool load_file_and_execute(const char* filename, const vm_options& options, char
             token == VM_TOKEN_STORE3 ||
             token == VM_TOKEN_STORE4)
         {
-            if (read_vm_store(str, &pos, &start, &token, &op))
+            if (read_vm_store(str, decls, structures, &pos, &start, &token, &op))
             {
                 operations.push_back(op);
             }
@@ -420,7 +732,7 @@ bool load_file_and_execute(const char* filename, const vm_options& options, char
         }
         else if (token == VM_TOKEN_ADD)
         {
-            if (read_vm_add(str, &pos, &start, &token, &op))
+            if (read_vm_add(str, decls, structures, &pos, &start, &token, &op))
             {
                 operations.push_back(op);
             }
@@ -433,7 +745,7 @@ bool load_file_and_execute(const char* filename, const vm_options& options, char
         }
         else if (token == VM_TOKEN_SUB)
         {
-            if (read_vm_sub(str, &pos, &start, &token, &op))
+            if (read_vm_sub(str, decls, structures, &pos, &start, &token, &op))
             {
                 operations.push_back(op);
             }
@@ -446,7 +758,7 @@ bool load_file_and_execute(const char* filename, const vm_options& options, char
         }
         else if (token == VM_TOKEN_DIV)
         {
-            if (read_vm_div(str, &pos, &start, &token, &op))
+            if (read_vm_div(str, decls, structures, &pos, &start, &token, &op))
             {
                 operations.push_back(op);
             }
@@ -459,7 +771,20 @@ bool load_file_and_execute(const char* filename, const vm_options& options, char
         }
         else if (token == VM_TOKEN_MUL)
         {
-            if (read_vm_mul(str, &pos, &start, &token, &op))
+            if (read_vm_mul(str, decls, structures, &pos, &start, &token, &op))
+            {
+                operations.push_back(op);
+            }
+            else
+            {
+                success = false;
+                set_error(errorText, "Error: Unexpected token parsing MUL", errorLength, str, start, pos);
+                break;
+            }
+        }
+        else if (token == VM_TOKEN_MOV)
+        {
+            if (read_vm_mov(str, decls, structures, &pos, &start, &token, &op))
             {
                 operations.push_back(op);
             }
@@ -484,6 +809,20 @@ bool load_file_and_execute(const char* filename, const vm_options& options, char
                 break;
             }
         }
+        else if (token == VM_TOKEN_DECLARE)
+        {
+            vm_operation operation;
+            if (read_vm_declare(structures, decls, str, &pos, &start, &token, &operation))
+            {
+                operations.push_back(operation);
+            }
+            else
+            {
+                success = false;
+                set_error(errorText, "Error: Unexpected token parsing DECLARE", errorLength, str, start, pos);
+                break;
+            }
+        }
         else if (token != VM_TOKEN_EOF)
         {
             success = false;
@@ -494,7 +833,7 @@ bool load_file_and_execute(const char* filename, const vm_options& options, char
 
     if (success)
     {
-        vm_execute(operations, options);
+        vm_execute(operations, structures, options);
     }
 
     return success;
