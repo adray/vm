@@ -413,6 +413,13 @@ bool read_vm_binary_op(const std::string& input, const std::vector<vm_decl_name>
     }
     else if (*token == VM_TOKEN_LITERAL)
     {
+        // special case
+        if (code == VM_MUL)
+        {
+            // error: dst of memory not supported
+            return false;
+        }
+
         int delcId;
         int field;
         bool res = read_vm_field(input, decls, structs, pos, start, token, &delcId, &field);
@@ -459,6 +466,12 @@ bool read_vm_binary_op(const std::string& input, const std::vector<vm_decl_name>
     }
     else if (*token == VM_TOKEN_LITERAL)
     {
+        if ((op->flags & VM_OPERATION_FLAGS_FIELD1) == VM_OPERATION_FLAGS_FIELD1)
+        {
+            // error - cannot move between two memory locations
+            return false;
+        }
+
         int declId;
         int field;
         bool res = read_vm_field(input, decls, structs, pos, start, token, &declId, &field);
@@ -791,7 +804,7 @@ bool load_file_and_execute(const char* filename, const vm_options& options, char
             else
             {
                 success = false;
-                set_error(errorText, "Error: Unexpected token parsing MUL", errorLength, str, start, pos);
+                set_error(errorText, "Error: Unexpected token parsing MOV", errorLength, str, start, pos);
                 break;
             }
         }

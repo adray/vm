@@ -11,10 +11,18 @@ STRUCTURE MyString
 END
 
 DECLARE Vector3 : pos
+STORE1 0
 STORE2 100
-MOV pos.x, S2
+MOV pos.x, S1
+ADD pos.x, S2
+MOV S1, pos.x
 STORE2 0
-STORE1 pos.x
 
+STORE2 200
+MOV pos.y, S2
+STORE2 0
+STORE3 pos.y
 
+ADD S1, pos.y
 
+; S1 = 300

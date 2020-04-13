@@ -17,13 +17,36 @@ enum vm_register
     VM_REGISTER_EDX = 0x2,
     VM_REGISTER_EBX = 0x3,
     VM_REGISTER_ESP = 0x4,
-    VM_REGISTER_EBP = 0x5
+    VM_REGISTER_EBP = 0x5,
+    VM_REGISTER_R0 = 0x8,
+    VM_REGISTER_R1 = 0x9,
+    VM_REGISTER_R2 = 0x10,
+    VM_REGISTER_R3 = 0x11,
+    VM_REGISTER_R4 = 0x12,
+    VM_REGISTER_R5 = 0x13,
+    VM_REGISTER_R6 = 0x14,
+    VM_REGISTER_R7 = 0x15
 };
 
 void vm_cpuid(unsigned char* program, int& count)
 {
     program[count++] = 0xf;
     program[count++] = 0xa2;
+}
+
+void vm_mov_reg_to_memory(unsigned char* program, int &count, char dst, char src)
+{
+    program[count++] = 0x89;
+
+    if (dst == VM_REGISTER_ESP)
+    {
+        program[count++] = ((src & 0x7) << 3) | 0x4 | (0x0 << 6);
+        program[count++] = 0x24;
+    }
+    else
+    {
+        program[count++] = ((src & 0x7) << 3) | (0x0 << 6) | (dst & 0x7);
+    }
 }
 
 void vm_mov_reg_to_memory(unsigned char* program, int &count, char dst, int dst_offset, char src)
@@ -46,6 +69,21 @@ void vm_mov_reg_to_memory(unsigned char* program, int &count, char dst, int dst_
         program[count++] = (unsigned char)((dst_offset >> 8) & 0xff);
         program[count++] = (unsigned char)((dst_offset >> 16) & 0xff);
         program[count++] = (unsigned char)((dst_offset >> 24) & 0xff);
+    }
+}
+
+void vm_mov_memory_to_reg(unsigned char* program, int &count, char dst, char src)
+{
+    program[count++] = 0x8b;
+
+    if (src == VM_REGISTER_ESP)
+    {
+        program[count++] = ((dst & 0x7) << 3) | 0x4 | (0x0 << 6);
+        program[count++] = 0x24;
+    }
+    else
+    {
+        program[count++] = ((dst & 0x7) << 3) | (0x0 << 6) | (src & 0x7);
     }
 }
 
@@ -143,6 +181,29 @@ void vm_add_reg_to_memory(unsigned char* program, int& count, char dst, int dst_
     }
 }
 
+void vm_add_memory_to_reg(unsigned char* program, int &count, char dst, char src, int src_offset)
+{
+    program[count++] = 0x3;
+
+    if (src == VM_REGISTER_ESP)
+    {
+        program[count++] = ((dst & 0x7) << 3) | 0x4 | (0x2 << 6);
+        program[count++] = 0x24;
+        program[count++] = (unsigned char)(src_offset & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 8) & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 16) & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 24) & 0xff);
+    }
+    else
+    {
+        program[count++] = ((dst & 0x7) << 3) | (0x2 << 6) | (src & 0x7);
+        program[count++] = (unsigned char)(src_offset & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 8) & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 16) & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 24) & 0xff);
+    }
+}
+
 void vm_add_reg_to_reg_x64(unsigned char* program, int& count, char dst, char src)
 {
     program[count++] = 0x48;
@@ -199,10 +260,140 @@ void vm_mul_reg_to_reg(unsigned char* program, int& count, char dst, char src)
     program[count++] = 0xC0 | ((dst & 0x7) << 0x3) | ((src & 0x7) << 0);
 }
 
+void vm_mul_memory_to_reg(unsigned char* program, int &count, char dst, char src, int src_offset)
+{
+    program[count++] = 0xf;
+    program[count++] = 0xaf;
+
+    if (src == VM_REGISTER_ESP)
+    {
+        program[count++] = ((dst & 0x7) << 3) | 0x4 | (0x2 << 6);
+        program[count++] = 0x24;
+        program[count++] = (unsigned char)(src_offset & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 8) & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 16) & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 24) & 0xff);
+    }
+    else
+    {
+        program[count++] = ((dst & 0x7) << 3) | (0x2 << 6) | (src & 0x7);
+        program[count++] = (unsigned char)(src_offset & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 8) & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 16) & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 24) & 0xff);
+    }
+}
+
 void vm_div_reg(unsigned char* program, int& count, char reg)
 {
     program[count++] = 0xf7;
     program[count++] = 0xf8 | ((reg & 0x7) << 0);
+}
+
+void vm_store(const vm_operation& operation, const std::vector<vm_stack_local>& locals, unsigned char* program, int &count, int stacksize, int reg)
+{
+    if (operation.arg2 == 1)
+    {
+        // move memory -> register
+        auto& local = locals[(operation.arg1 >> 16) & 0xfff];
+        if (local.type.fields[operation.arg1 & 0xfff].size == 4)
+        {
+            vm_mov_memory_to_reg(program, count, reg, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xfff].size);
+        }
+    }
+    else
+    {
+        // mov imm -> register (EAX)
+        vm_mov_imm_to_reg(program, count, operation.arg1, reg);
+    }
+}
+
+void vm_mov(const vm_operation& operation, const std::vector<vm_stack_local>& locals, unsigned char* program, int &count, int stacksize)
+{
+    if ((operation.flags & VM_OPERATION_FLAGS_FIELD1) == VM_OPERATION_FLAGS_FIELD1)
+    {
+        // mov register -> memory
+        auto& local = locals[(operation.arg1 >> 16) & 0xfff];
+        if (local.type.fields[operation.arg1 & 0xfff].size == 4)
+        {
+            vm_mov_reg_to_memory(program, count, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xfff].size, operation.arg2);
+        }
+    }
+    else if ((operation.flags & VM_OPERATION_FLAGS_FIELD2) == VM_OPERATION_FLAGS_FIELD2)
+    {
+        // mov memory -> register
+        auto& local = locals[(operation.arg2 >> 16) & 0xfff];
+        if (local.type.fields[operation.arg2 & 0xfff].size == 4)
+        {
+            vm_mov_memory_to_reg(program, count, operation.arg1, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xfff].size);
+        }
+    }
+    else if (operation.flags == VM_OPERATION_FLAGS_NONE)
+    {
+        // mov register -> register
+        vm_mov_reg_to_reg(program, count, operation.arg1, operation.arg2);
+    }
+}
+
+void vm_add(const vm_operation& operation, const std::vector<vm_stack_local>& locals, unsigned char* program, int &count, int stacksize, const vm_options& options)
+{
+    if (operation.flags == VM_OPERATION_FLAGS_NONE)
+    {
+        if (options.x64)
+        {
+            vm_add_reg_to_reg_x64(program, count, operation.arg1, operation.arg2); // add register -> register
+        }
+        else
+        {
+            vm_add_reg_to_reg(program, count, operation.arg1, operation.arg2); // add register -> register
+        }
+    }
+    else if ((operation.flags & VM_OPERATION_FLAGS_FIELD1) == VM_OPERATION_FLAGS_FIELD1)
+    {
+        // add register -> memory
+        auto& local = locals[(operation.arg1 >> 16) & 0xfff];
+        if (local.type.fields[operation.arg1 & 0xfff].size == 4)
+        {
+            vm_add_reg_to_memory(program, count, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xffff].size, operation.arg2);
+        }
+    }
+    else if ((operation.flags & VM_OPERATION_FLAGS_FIELD2) == VM_OPERATION_FLAGS_FIELD2)
+    {
+        // add memory -> register
+        auto& local = locals[(operation.arg2 >> 16) & 0xfff];
+        if (local.type.fields[operation.arg2 & 0xfff].size == 4)
+        {
+            vm_add_memory_to_reg(program, count, operation.arg1, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xffff].size);
+        }
+    }
+}
+
+void vm_mul(const vm_operation& operation, const std::vector<vm_stack_local>& locals, unsigned char* program, int &count, int stacksize)
+{
+    if (operation.flags == VM_OPERATION_FLAGS_NONE)
+    {
+        // mul register -> register
+        vm_mul_reg_to_reg(program, count, operation.arg1, operation.arg2);
+    }
+    else if ((operation.flags & VM_OPERATION_FLAGS_FIELD1) == VM_OPERATION_FLAGS_FIELD1)
+    {
+        // TODO: this does not appear to be a valid option
+        // add register -> memory
+        //auto& local = locals[(operation.arg1 >> 16) & 0xfff];
+        //if (local.type.fields[operation.arg1 & 0xfff].size == 4)
+        //{
+        //    vm_mul_reg_to_memory(program, count, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xffff].size, operation.arg2);
+        //}
+    }
+    else if ((operation.flags & VM_OPERATION_FLAGS_FIELD2) == VM_OPERATION_FLAGS_FIELD2)
+    {
+        // add memory -> register
+        auto& local = locals[(operation.arg2 >> 16) & 0xfff];
+        if (local.type.fields[operation.arg2 & 0xfff].size == 4)
+        {
+            vm_mul_memory_to_reg(program, count, operation.arg1, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xffff].size);
+        }
+    }
 }
 
 void vm_generate(const std::vector<vm_operation>& operations, const std::vector<vm_structure>& structures, const vm_options& options, unsigned char* program, int &count)
@@ -238,102 +429,27 @@ void vm_generate(const std::vector<vm_operation>& operations, const std::vector<
     {
         if (operation.code == VM_STORE_1)
         {
-            if (operation.arg2 == 1)
-            {
-                // move memory -> register
-                auto& local = locals[(operation.arg1 >> 16) & 0xfff];
-                if (local.type.fields[operation.arg1 & 0xfff].size == 4)
-                {
-                    vm_mov_memory_to_reg(program, count, VM_REGISTER_EAX, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset);
-                }
-            }
-            else
-            {
-                // mov imm -> register (EAX)
-                vm_mov_imm_to_reg(program, count, operation.arg1, VM_REGISTER_EAX);
-            }
+            vm_store(operation, locals, program, count, stacksize, VM_REGISTER_EAX);
         }
         else if (operation.code == VM_STORE_2)
         {
-            if (operation.arg2 == 1)
-            {
-                // move memory -> register
-
-            }
-            else
-            {
-                // mov imm -> register (ECX)
-                vm_mov_imm_to_reg(program, count, operation.arg1, VM_REGISTER_ECX);
-            }
+            vm_store(operation, locals, program, count, stacksize, VM_REGISTER_ECX);
         }
         else if (operation.code == VM_STORE_3)
         {
-            if (operation.arg2 == 1)
-            {
-                // move memory -> register
-
-            }
-            else
-            {
-                // mov imm -> register (EDX)
-                vm_mov_imm_to_reg(program, count, operation.arg1, VM_REGISTER_EDX);
-            }
+            vm_store(operation, locals, program, count, stacksize, VM_REGISTER_EDX);
         }
         else if (operation.code == VM_STORE_4)
         {
-            if (operation.arg2 == 1)
-            {
-                // move memory -> register
-
-            }
-            else
-            {
-                // mov imm -> register (EBX)
-                vm_mov_imm_to_reg(program, count, operation.arg1, VM_REGISTER_EBX);
-            }
+            vm_store(operation, locals, program, count, stacksize, VM_REGISTER_EBX);
         }
         else if (operation.code == VM_MOV)
         {
-            if ((operation.flags & VM_OPERATION_FLAGS_FIELD1) == VM_OPERATION_FLAGS_FIELD1)
-            {
-                // TODO: mov register -> memory
-                auto& local = locals[(operation.arg1 >> 16) & 0xfff];
-                if (local.type.fields[operation.arg1 & 0xfff].size == 4)
-                {
-                    vm_mov_reg_to_memory(program, count, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset, operation.arg2);
-                }
-            }
+            vm_mov(operation, locals, program, count, stacksize);
         }
         else if (operation.code == VM_ADD)
         {
-            if (operation.flags == VM_OPERATION_FLAGS_NONE)
-            {
-                if (options.x64)
-                {
-                    vm_add_reg_to_reg_x64(program, count, operation.arg1, operation.arg2); // add register -> register
-                }
-                else
-                {
-                    vm_add_reg_to_reg(program, count, operation.arg1, operation.arg2); // add register -> register
-                }
-            }
-            else if ((operation.flags & (VM_OPERATION_FLAGS_FIELD1 | VM_OPERATION_FLAGS_FIELD2)) == (VM_OPERATION_FLAGS_FIELD1 | VM_OPERATION_FLAGS_FIELD2))
-            {
-                // TODO: add memory -> memory
-            }
-            else if ((operation.flags & VM_OPERATION_FLAGS_FIELD1) == VM_OPERATION_FLAGS_FIELD1)
-            {
-                // TODO: add register -> memory
-                auto& local = locals[(operation.arg1 >> 16) & 0xfff];
-                if (local.type.fields[operation.arg1 & 0xfff].size == 4)
-                {
-                    vm_add_reg_to_memory(program, count, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset /*TODO*/, operation.arg2);
-                }
-            }
-            else if ((operation.flags & VM_OPERATION_FLAGS_FIELD2) == VM_OPERATION_FLAGS_FIELD2)
-            {
-                // TODO: add memory -> register
-            }
+            vm_add(operation, locals, program, count, stacksize, options);
         }
         else if (operation.code == VM_SUB)
         {
@@ -342,8 +458,7 @@ void vm_generate(const std::vector<vm_operation>& operations, const std::vector<
         }
         else if (operation.code == VM_MUL)
         {
-            // mul register -> register
-            vm_mul_reg_to_reg(program, count, operation.arg1, operation.arg2);
+            vm_mul(operation, locals, program, count, stacksize);
         }
         else if (operation.code == VM_DIV)
         {

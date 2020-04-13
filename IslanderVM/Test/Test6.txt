@@ -1,0 +1,27 @@
+; Vectors
+
+STRUCTURE Vector2
+    FIELD 4 : x
+    FIELD 4 : y
+END
+
+DECLARE Vector2 : pos1
+DECLARE Vector2 : pos2
+
+STORE1 100
+MOV pos1.x, S1
+STORE1 200
+MOV pos1.y, S1
+STORE1 25
+MOV pos2.x, S1
+MOV pos2.y, S1
+
+; DOT
+MOV S1, pos1.x
+MUL S1, pos2.x
+
+MOV S2, pos1.y
+MUL S2, pos2.y
+ADD S1, S2 
+
+; S1 = 100 * 25 + 200 * 25 = 7500
