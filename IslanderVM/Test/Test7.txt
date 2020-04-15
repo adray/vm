@@ -1,0 +1,24 @@
+; Branching
+
+STORE1 0
+STORE2 10
+STORE3 0
+STORE4 1 ; remove when INC is added
+
+LoopStart:
+CMP S1, S2
+JUMPEQ LoopEnd  ; Jump to Loopend if S1 == S2
+; JUMPLT JUMPGT JUMPEQ
+
+; Loop body
+
+STORE4 2
+ADD S3, S4
+STORE4 1
+
+ADD S1, S4 ;INC S1
+JUMP LoopStart
+
+LoopEnd:
+
+MOV S1, S3

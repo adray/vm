@@ -21,7 +21,13 @@ enum vm_code
     VM_STORE_2 = 0x21,
     VM_STORE_3 = 0x22,
     VM_STORE_4 = 0x23,
-    VM_DECLARE = 0x30
+    VM_DECLARE = 0x30,
+    VM_CMP = 0x40,
+    VM_JMP = 0x50,
+    VM_JMPLT = 0x51,
+    VM_JMPGT = 0x52,
+    VM_JMPEQ = 0x53,
+    VM_LABEL = 0x60
 };
 
 enum vm_operation_flags

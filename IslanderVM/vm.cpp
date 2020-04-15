@@ -10,6 +10,20 @@ struct vm_stack_local
     vm_structure type;
 };
 
+struct vm_label_target
+{
+    int labelId;
+    bool initialized;
+    int position;
+};
+
+struct vm_jump
+{
+    vm_code code;
+    int labelId;
+    int position;
+};
+
 enum vm_register
 {
     VM_REGISTER_EAX = 0x0,
@@ -32,6 +46,24 @@ void vm_cpuid(unsigned char* program, int& count)
 {
     program[count++] = 0xf;
     program[count++] = 0xa2;
+}
+
+void vm_reserve(unsigned char* program, int& count)
+{
+    program[count++] = 0x90; // nop
+}
+
+void vm_reserve2(unsigned char* program, int& count)
+{
+    program[count++] = 0x90; // nop
+    program[count++] = 0x90; // nop
+}
+
+void vm_reserve3(unsigned char* program, int& count)
+{
+    program[count++] = 0x90; // nop
+    program[count++] = 0x90; // nop
+    program[count++] = 0x90; // nop
 }
 
 void vm_mov_reg_to_memory(unsigned char* program, int &count, char dst, char src)
@@ -290,6 +322,35 @@ void vm_div_reg(unsigned char* program, int& count, char reg)
     program[count++] = 0xf8 | ((reg & 0x7) << 0);
 }
 
+void vm_cmp_reg_with_reg(unsigned char* program, int& count, char reg1, char reg2)
+{
+    program[count++] = 0x39;
+    program[count++] = 0xC0 | ((reg2 & 0x7) << 0x3) | ((reg1 & 0x7) << 0);
+}
+
+void vm_cmp_memory_with_reg(unsigned char* program, int& count, char dst, int dst_offset, char src)
+{
+    program[count++] = 0x39;
+
+    if (dst == VM_REGISTER_ESP)
+    {
+        program[count++] = ((src & 0x7) << 3) | 0x4 | (0x2 << 6);
+        program[count++] = 0x24;
+        program[count++] = (unsigned char)(dst_offset & 0xff);
+        program[count++] = (unsigned char)((dst_offset >> 8) & 0xff);
+        program[count++] = (unsigned char)((dst_offset >> 16) & 0xff);
+        program[count++] = (unsigned char)((dst_offset >> 24) & 0xff);
+    }
+    else
+    {
+        program[count++] = ((src & 0x7) << 3) | (0x2 << 6) | (dst & 0x7);
+        program[count++] = (unsigned char)(dst_offset & 0xff);
+        program[count++] = (unsigned char)((dst_offset >> 8) & 0xff);
+        program[count++] = (unsigned char)((dst_offset >> 16) & 0xff);
+        program[count++] = (unsigned char)((dst_offset >> 24) & 0xff);
+    }
+}
+
 void vm_store(const vm_operation& operation, const std::vector<vm_stack_local>& locals, unsigned char* program, int &count, int stacksize, int reg)
 {
     if (operation.arg2 == 1)
@@ -396,12 +457,45 @@ void vm_mul(const vm_operation& operation, const std::vector<vm_stack_local>& lo
     }
 }
 
+void vm_cmp(const vm_operation& operation, const std::vector<vm_stack_local>& locals, unsigned char* program, int &count, int stacksize)
+{
+    if (operation.flags == VM_OPERATION_FLAGS_NONE)
+    {
+        // cmp register/register
+        vm_cmp_reg_with_reg(program, count, operation.arg1, operation.arg2);
+    }
+    else if ((operation.flags & (VM_OPERATION_FLAGS_FIELD1 | VM_OPERATION_FLAGS_FIELD2)) == (VM_OPERATION_FLAGS_FIELD1 | VM_OPERATION_FLAGS_FIELD2))
+    {
+        // Not supported
+    }
+    else if ((operation.flags & VM_OPERATION_FLAGS_FIELD1) == VM_OPERATION_FLAGS_FIELD1)
+    {
+        // cmp register/memory
+        auto& local = locals[(operation.arg1 >> 16) & 0xfff];
+        if (local.type.fields[operation.arg1 & 0xfff].size == 4)
+        {
+            vm_cmp_memory_with_reg(program, count, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xffff].size, operation.arg2);
+        }
+    }
+    else if ((operation.flags & VM_OPERATION_FLAGS_FIELD2) == VM_OPERATION_FLAGS_FIELD2)
+    {
+        // cmp memory/register
+        auto& local = locals[(operation.arg2 >> 16) & 0xfff];
+        if (local.type.fields[operation.arg2 & 0xfff].size == 4)
+        {
+            vm_cmp_memory_with_reg(program, count, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xffff].size, operation.arg1);
+        }
+    }
+}
+
 void vm_generate(const std::vector<vm_operation>& operations, const std::vector<vm_structure>& structures, const vm_options& options, unsigned char* program, int &count)
 {
     vm_push_reg(program, count, VM_REGISTER_EBP);
     vm_mov_reg_to_reg_x64(program, count, VM_REGISTER_EBP, VM_REGISTER_ESP);
 
+    std::vector<vm_label_target> labels;
     std::vector<vm_stack_local> locals;
+    std::vector<vm_jump> jumps;
     int stacksize = 0;
     for (auto& operation : operations)
     {
@@ -420,6 +514,14 @@ void vm_generate(const std::vector<vm_operation>& operations, const std::vector<
             locals.push_back(local);
 
             stacksize += VM_ALIGN_16(size); // aligning
+        }
+        else if (operation.code == VM_LABEL)
+        {
+            vm_label_target label;
+            label.labelId = operation.arg1;
+            label.initialized = false;
+            label.position = 0;
+            labels.push_back(label);
         }
     }
 
@@ -477,11 +579,86 @@ void vm_generate(const std::vector<vm_operation>& operations, const std::vector<
                 vm_pop_reg(program, count, VM_REGISTER_EAX); // pop to EAX
             }
         }
+        else if (operation.code == VM_CMP)
+        {
+            vm_cmp(operation, locals, program, count, stacksize);
+        }
+        else if (operation.code == VM_LABEL)
+        {
+            auto& label = labels.at(operation.arg1);
+            label.initialized = true;
+            label.position = count;
+        }
+        else if (operation.code == VM_JMP)
+        {
+            auto& label = labels.at(operation.arg1);
+            vm_jump jump;
+            jump.labelId = label.labelId;
+            jump.position = count;
+            jump.code = VM_JMP;
+            vm_reserve2(program, count);
+            jumps.push_back(jump);
+        }
+        else if (operation.code == VM_JMPLT)
+        {
+            auto& label = labels.at(operation.arg1);
+            vm_jump jump;
+            jump.labelId = label.labelId;
+            jump.position = count;
+            jump.code = VM_JMPLT;
+            vm_reserve2(program, count);
+            jumps.push_back(jump);
+        }
+        else if (operation.code == VM_JMPGT)
+        {
+            auto& label = labels.at(operation.arg1);
+            vm_jump jump;
+            jump.labelId = label.labelId;
+            jump.position = count;
+            jump.code = VM_JMPGT;
+            vm_reserve2(program, count);
+            jumps.push_back(jump);
+        }
+        else if (operation.code == VM_JMPEQ)
+        {
+            auto& label = labels.at(operation.arg1);
+            vm_jump jump;
+            jump.labelId = label.labelId;
+            jump.position = count;
+            jump.code = VM_JMPEQ;
+            vm_reserve2(program, count);
+            jumps.push_back(jump);
+        }
     }
 
     vm_mov_reg_to_reg_x64(program, count, VM_REGISTER_ESP, VM_REGISTER_EBP);
     vm_pop_reg(program, count, VM_REGISTER_EBP);
     vm_return(program, count);
+
+    for (auto& jump : jumps)
+    {
+        auto& label = labels.at(jump.labelId);
+        if (jump.code == VM_JMP)
+        {
+            program[jump.position] = 0xEB;
+            program[jump.position + 1] = label.position - jump.position - 2;
+        }
+        else if (jump.code == VM_JMPLT)
+        {
+            program[jump.position] = 0x70 | 0x2;
+            program[jump.position + 1] = label.position - jump.position - 2;
+        }
+        else if (jump.code == VM_JMPGT)
+        {
+            program[jump.position] = 0x70 | 0x7;
+            program[jump.position + 1] = label.position - jump.position - 2;
+        }
+        else if (jump.code == VM_JMPEQ)
+        {
+            program[jump.position] = 0x70 | 0x4;
+            program[jump.position + 1] = label.position - jump.position - 2;
+        }
+    }
 }
 
 void vm_execute(const std::vector<vm_operation>& operations, const std::vector<vm_structure>& structures, const vm_options& options)

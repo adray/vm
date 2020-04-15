@@ -7,10 +7,18 @@
 #include "vm.h"
 
 #define VM_DECL_NAME_MAX_SIZE 256
+#define VM_LABEL_NAME_MAX_SIZE 256
 
 struct vm_decl_name
 {
     int typeId;
+    char name[VM_DECL_NAME_MAX_SIZE];
+};
+
+struct vm_label
+{
+    int labelId;
+    int defined;
     char name[VM_DECL_NAME_MAX_SIZE];
 };
 
@@ -34,6 +42,11 @@ enum vm_token
     VM_TOKEN_STRUCTURE = 0x31,
     VM_TOKEN_FIELD = 0x32,
     VM_TOKEN_DECLARE = 0x33,
+    VM_TOKEN_CMP = 0x40,
+    VM_TOKEN_JMP = 0x50,
+    VM_TOKEN_JMPLT = 0x51,
+    VM_TOKEN_JMPGT = 0x52,
+    VM_TOKEN_JMPEQ = 0x53,
     VM_TOKEN_LOCATION1 = 0x90,
     VM_TOKEN_LOCATION2 = 0x91,
     VM_TOKEN_LOCATION3 = 0x92,
@@ -44,6 +57,22 @@ enum vm_token
     VM_TOKEN_DOT = 0x103,
     VM_TOKEN_EOF = 0x1000
 };
+
+int find_vm_label_const(vm_label& label, const std::vector<vm_label>& labels)
+{
+    int labelId = -1;
+    for (int i = 0; i < labels.size(); i++)
+    {
+        if (strcmp(label.name, labels[i].name) == 0)
+        {
+            labelId = i;
+            label.labelId = labels[i].labelId;
+            break;
+        }
+    }
+
+    return labelId;
+}
 
 int find_vm_decl_const(vm_decl_name& decl, const std::vector<vm_decl_name>& decls)
 {
@@ -95,6 +124,11 @@ void read_vm_identifier(const std::string& input, int start, char* name, int max
         }
 
         if (input[start] == ',')
+        {
+            break;
+        }
+
+        if (input[start] == ':')
         {
             break;
         }
@@ -213,6 +247,10 @@ void get_next_token(const std::string& line, int* pos, vm_token* token)
     {
         *token = VM_TOKEN_MOV;
     }
+    else if (strcmp(data, "CMP") == 0)
+    {
+        *token = VM_TOKEN_CMP;
+    }
     else if (strcmp(data, "STORE1") == 0)
     {
         *token = VM_TOKEN_STORE1;
@@ -260,6 +298,22 @@ void get_next_token(const std::string& line, int* pos, vm_token* token)
     else if (strcmp(data, "DECLARE") == 0)
     {
         *token = VM_TOKEN_DECLARE;
+    }
+    else if (strcmp(data, "JUMP") == 0)
+    {
+        *token = VM_TOKEN_JMP;
+    }
+    else if (strcmp(data, "JUMPLT") == 0)
+    {
+        *token = VM_TOKEN_JMPLT;
+    }
+    else if (strcmp(data, "JUMPGT") == 0)
+    {
+        *token = VM_TOKEN_JMPGT;
+    }
+    else if (strcmp(data, "JUMPEQ") == 0)
+    {
+        *token = VM_TOKEN_JMPEQ;
     }
     else
     {
@@ -518,6 +572,11 @@ bool read_vm_mov(const std::string& input, const std::vector<vm_decl_name>& decl
     return read_vm_binary_op(input, decls, structs, pos, start, token, op, VM_MOV);
 }
 
+bool read_vm_cmp(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure>& structs, int* pos, int* start, vm_token* token, vm_operation* op)
+{
+    return read_vm_binary_op(input, decls, structs, pos, start, token, op, VM_CMP);
+}
+
 void read_vm_structure_name(const std::string& input, int start, char* name)
 {
     read_vm_identifier(input, start, name, VM_STRUCTURE_MAX_NAME);
@@ -682,6 +741,90 @@ bool read_vm_struct(const std::string& input, int* pos, int* start, vm_token* to
     return false;
 }
 
+bool read_vm_label(std::vector<vm_label>& labels, const std::string& input, int* pos, int* start, vm_token* token, vm_operation* operation)
+{
+    int labelStart = *start;
+    for (int i = *start; i < *pos; i++)
+    {
+        if (input.at(i) == '\n')
+        {
+            labelStart = i + 1;
+        }
+    }
+
+    vm_label label;
+    read_vm_identifier(input, labelStart, label.name, sizeof(label.name));
+
+    *start = *pos;
+    get_next_token(input, pos, token);
+    if (*token != VM_TOKEN_COLON)
+    {
+        // error
+        return false;
+    }
+
+    int labelId = find_vm_label_const(label, labels);
+    if (labelId == -1)
+    {
+        label.defined = 1;
+        label.labelId = labels.size();
+        labels.push_back(label);
+    }
+    else
+    {
+        labels.at(labelId).defined = 1;
+    }
+
+    operation->code = VM_LABEL;
+    operation->arg1 = label.labelId;
+
+    return true;
+}
+
+bool read_vm_jump(std::vector<vm_label>& labels, const std::string& input, int* pos, int* start, vm_token* token, vm_operation* operation)
+{
+    vm_code code;
+    switch (*token)
+    {
+    case VM_TOKEN_JMP:
+        code = VM_JMP;
+        break;
+    case VM_TOKEN_JMPLT:
+        code = VM_JMPLT;
+        break;
+    case VM_TOKEN_JMPGT:
+        code = VM_JMPGT;
+        break;
+    case VM_TOKEN_JMPEQ:
+        code = VM_JMPEQ;
+        break;
+    }
+
+    *start = *pos;
+    get_next_token(input, pos, token);
+    if (*token != VM_TOKEN_LITERAL)
+    {
+        // error
+        return false;
+    }
+
+    vm_label label;
+    read_vm_identifier(input, *start, label.name, sizeof(label.name));
+    int labelId = find_vm_label_const(label, labels);
+    if (labelId == -1)
+    {
+        // label does not exist yet
+        label.defined = 0;
+        label.labelId = labels.size();
+        labels.push_back(label);
+    }
+
+    operation->code = code;
+    operation->arg1 = label.labelId;
+
+    return true;
+}
+
 void set_error(char* errorOutput, char* errorMsg, int maxErrorLength, const std::string& str, int pos, int end)
 {
     std::stringstream stream;
@@ -700,6 +843,7 @@ bool load_file_and_execute(const char* filename, const vm_options& options, char
     std::vector<vm_operation> operations;
     std::vector<vm_structure> structures;
     std::vector<vm_decl_name> decls;
+    std::vector<vm_label> labels;
 
     std::string str;
     std::ifstream stream;
@@ -720,14 +864,7 @@ bool load_file_and_execute(const char* filename, const vm_options& options, char
         start = pos;
 
         get_next_token(str, &pos, &token);
-        if (token == VM_TOKEN_LOAD1 ||
-            token == VM_TOKEN_LOAD2 ||
-            token == VM_TOKEN_LOAD3 ||
-            token == VM_TOKEN_LOAD4)
-        {
-
-        }
-        else if (token == VM_TOKEN_STORE1 ||
+        if (token == VM_TOKEN_STORE1 ||
             token == VM_TOKEN_STORE2 ||
             token == VM_TOKEN_STORE3 ||
             token == VM_TOKEN_STORE4)
@@ -808,6 +945,19 @@ bool load_file_and_execute(const char* filename, const vm_options& options, char
                 break;
             }
         }
+        else if (token == VM_TOKEN_CMP)
+        {
+            if (read_vm_cmp(str, decls, structures, &pos, &start, &token, &op))
+            {
+                operations.push_back(op);
+            }
+            else
+            {
+                success = false;
+                set_error(errorText, "Error: Unexpected token parsing CMP", errorLength, str, start, pos);
+                break;
+            }
+        }
         else if (token == VM_TOKEN_STRUCTURE)
         {
             vm_structure structure;
@@ -833,6 +983,37 @@ bool load_file_and_execute(const char* filename, const vm_options& options, char
             {
                 success = false;
                 set_error(errorText, "Error: Unexpected token parsing DECLARE", errorLength, str, start, pos);
+                break;
+            }
+        }
+        else if (token == VM_TOKEN_JMP ||
+            token == VM_TOKEN_JMPEQ ||
+            token == VM_TOKEN_JMPGT ||
+            token == VM_TOKEN_JMPLT)
+        {
+            vm_operation operation;
+            if (read_vm_jump(labels, str, &pos, &start, &token, &operation))
+            {
+                operations.push_back(operation);
+            }
+            else
+            {
+                success = false;
+                set_error(errorText, "Error: Unexpected token parsing JUMP", errorLength, str, start, pos);
+                break;
+            }
+        }
+        else if (token == VM_TOKEN_LITERAL)
+        {
+            vm_operation operation;
+            if (read_vm_label(labels, str, &pos, &start, &token, &operation))
+            {
+                operations.push_back(operation);
+            }
+            else
+            {
+                success = false;
+                set_error(errorText, "Error: Unexpected token", errorLength, str, start, pos);
                 break;
             }
         }

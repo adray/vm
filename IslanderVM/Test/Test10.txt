@@ -1,0 +1,23 @@
+; Compares
+
+STRUCTURE type
+    FIELD 4 : x
+    FIELD 4 : y
+END
+
+DECLARE type : t1
+STORE1 5000
+MOV t1.x, S1
+CMP t1.x, S1
+JUMPEQ Success
+JUMP Failed
+
+Success:
+CMP S1, t1.x
+STORE1 1
+JUMPEQ End
+
+Failed:
+STORE1 0
+
+End:

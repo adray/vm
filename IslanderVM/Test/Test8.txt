@@ -1,0 +1,29 @@
+; Branching ifs
+
+STORE1 55
+
+STORE2 60
+CMP S1, S2
+JUMPEQ Case1
+STORE2 58
+CMP S1, S2
+JUMPEQ Case2
+STORE2 55
+CMP S1, S2
+JUMPEQ Case3
+JUMP End
+
+Case1:
+STORE2 1
+JUMP End
+
+Case2:
+STORE2 2
+JUMP End
+
+Case3:
+STORE2 3
+; fall through
+
+End:
+MOV S1, S2
