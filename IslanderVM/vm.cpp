@@ -6,6 +6,7 @@
 
 struct vm_stack_local
 {
+    int reg;
     int offset;
     vm_structure type;
 };
@@ -22,6 +23,12 @@ struct vm_jump
     vm_code code;
     int labelId;
     int position;
+};
+
+struct vm_method_local
+{
+    int position;
+    vm_scope* scope;
 };
 
 enum vm_register
@@ -121,6 +128,30 @@ void vm_mov_memory_to_reg(unsigned char* program, int &count, char dst, char src
 
 void vm_mov_memory_to_reg(unsigned char* program, int &count, char dst, char src, int src_offset)
 {
+    program[count++] = 0x8b;
+
+    if (src == VM_REGISTER_ESP)
+    {
+        program[count++] = ((dst & 0x7) << 3) | 0x4 | (0x2 << 6);
+        program[count++] = 0x24;
+        program[count++] = (unsigned char)(src_offset & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 8) & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 16) & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 24) & 0xff);
+    }
+    else
+    {
+        program[count++] = ((dst & 0x7) << 3) | (0x2 << 6) | (src & 0x7);
+        program[count++] = (unsigned char)(src_offset & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 8) & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 16) & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 24) & 0xff);
+    }
+}
+
+void vm_mov_memory_to_reg_x64(unsigned char* program, int &count, char dst, char src, int src_offset)
+{
+    program[count++] = 0x48;
     program[count++] = 0x8b;
 
     if (src == VM_REGISTER_ESP)
@@ -359,7 +390,7 @@ void vm_store(const vm_operation& operation, const std::vector<vm_stack_local>& 
         auto& local = locals[(operation.arg1 >> 16) & 0xfff];
         if (local.type.fields[operation.arg1 & 0xfff].size == 4)
         {
-            vm_mov_memory_to_reg(program, count, reg, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xfff].size);
+            vm_mov_memory_to_reg(program, count, reg, local.reg, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xfff].size);
         }
     }
     else
@@ -377,7 +408,7 @@ void vm_mov(const vm_operation& operation, const std::vector<vm_stack_local>& lo
         auto& local = locals[(operation.arg1 >> 16) & 0xfff];
         if (local.type.fields[operation.arg1 & 0xfff].size == 4)
         {
-            vm_mov_reg_to_memory(program, count, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xfff].size, operation.arg2);
+            vm_mov_reg_to_memory(program, count, local.reg, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xfff].size, operation.arg2);
         }
     }
     else if ((operation.flags & VM_OPERATION_FLAGS_FIELD2) == VM_OPERATION_FLAGS_FIELD2)
@@ -386,7 +417,7 @@ void vm_mov(const vm_operation& operation, const std::vector<vm_stack_local>& lo
         auto& local = locals[(operation.arg2 >> 16) & 0xfff];
         if (local.type.fields[operation.arg2 & 0xfff].size == 4)
         {
-            vm_mov_memory_to_reg(program, count, operation.arg1, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xfff].size);
+            vm_mov_memory_to_reg(program, count, operation.arg1, local.reg, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xfff].size);
         }
     }
     else if (operation.flags == VM_OPERATION_FLAGS_NONE)
@@ -415,7 +446,7 @@ void vm_add(const vm_operation& operation, const std::vector<vm_stack_local>& lo
         auto& local = locals[(operation.arg1 >> 16) & 0xfff];
         if (local.type.fields[operation.arg1 & 0xfff].size == 4)
         {
-            vm_add_reg_to_memory(program, count, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xffff].size, operation.arg2);
+            vm_add_reg_to_memory(program, count, local.reg, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xffff].size, operation.arg2);
         }
     }
     else if ((operation.flags & VM_OPERATION_FLAGS_FIELD2) == VM_OPERATION_FLAGS_FIELD2)
@@ -424,7 +455,7 @@ void vm_add(const vm_operation& operation, const std::vector<vm_stack_local>& lo
         auto& local = locals[(operation.arg2 >> 16) & 0xfff];
         if (local.type.fields[operation.arg2 & 0xfff].size == 4)
         {
-            vm_add_memory_to_reg(program, count, operation.arg1, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xffff].size);
+            vm_add_memory_to_reg(program, count, operation.arg1, local.reg, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xffff].size);
         }
     }
 }
@@ -452,7 +483,7 @@ void vm_mul(const vm_operation& operation, const std::vector<vm_stack_local>& lo
         auto& local = locals[(operation.arg2 >> 16) & 0xfff];
         if (local.type.fields[operation.arg2 & 0xfff].size == 4)
         {
-            vm_mul_memory_to_reg(program, count, operation.arg1, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xffff].size);
+            vm_mul_memory_to_reg(program, count, operation.arg1, local.reg, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xffff].size);
         }
     }
 }
@@ -474,7 +505,7 @@ void vm_cmp(const vm_operation& operation, const std::vector<vm_stack_local>& lo
         auto& local = locals[(operation.arg1 >> 16) & 0xfff];
         if (local.type.fields[operation.arg1 & 0xfff].size == 4)
         {
-            vm_cmp_memory_with_reg(program, count, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xffff].size, operation.arg2);
+            vm_cmp_memory_with_reg(program, count, local.reg, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xffff].size, operation.arg2);
         }
     }
     else if ((operation.flags & VM_OPERATION_FLAGS_FIELD2) == VM_OPERATION_FLAGS_FIELD2)
@@ -483,39 +514,139 @@ void vm_cmp(const vm_operation& operation, const std::vector<vm_stack_local>& lo
         auto& local = locals[(operation.arg2 >> 16) & 0xfff];
         if (local.type.fields[operation.arg2 & 0xfff].size == 4)
         {
-            vm_cmp_memory_with_reg(program, count, VM_REGISTER_ESP, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xffff].size, operation.arg1);
+            vm_cmp_memory_with_reg(program, count, local.reg, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xffff].size, operation.arg1);
         }
     }
 }
 
-void vm_generate(const std::vector<vm_operation>& operations, const std::vector<vm_structure>& structures, const vm_options& options, unsigned char* program, int &count)
+void vm_call(unsigned char* program, int &count, int offset)
 {
-    vm_push_reg(program, count, VM_REGISTER_EBP);
-    vm_mov_reg_to_reg_x64(program, count, VM_REGISTER_EBP, VM_REGISTER_ESP);
+    offset -= 5;
 
+    program[count++] = 0xE8;
+    program[count++] = (unsigned char)(offset & 0xff);
+    program[count++] = (unsigned char)((offset >> 8) & 0xff);
+    program[count++] = (unsigned char)((offset >> 16) & 0xff);
+    program[count++] = (unsigned char)((offset >> 24) & 0xff);
+}
+
+void vm_load_effective_address(unsigned char* program, int& count, int dst, int src, int src_offset)
+{
+    program[count++] = 0x48;
+    program[count++] = 0x8D;
+
+    if (src == VM_REGISTER_ESP)
+    {
+        program[count++] = ((dst & 0x7) << 3) | 0x4 | (0x2 << 6);
+        program[count++] = 0x24;
+        program[count++] = (unsigned char)(src_offset & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 8) & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 16) & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 24) & 0xff);
+    }
+    else
+    {
+        program[count++] = ((dst & 0x7) << 3) | (0x2 << 6) | (src & 0x7);
+        program[count++] = (unsigned char)(src_offset & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 8) & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 16) & 0xff);
+        program[count++] = (unsigned char)((src_offset >> 24) & 0xff);
+    }
+}
+
+void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options& options, unsigned char* program, int &count, int& start)
+{
     std::vector<vm_label_target> labels;
     std::vector<vm_stack_local> locals;
+    std::vector<vm_stack_local> parameters;
     std::vector<vm_jump> jumps;
-    int stacksize = 0;
-    for (auto& operation : operations)
-    {
-        if (operation.code == VM_DECLARE)
-        {
-            const vm_structure& structure = structures[operation.arg1];
-            int size = 0;
-            for (int i = 0; i < structure.fieldcount; i++)
-            {
-                size += structure.fields[i].size;
-            }
+    std::vector<vm_method_local> methods;
 
+    for (auto& child_scope : scope.children)
+    {
+        if (child_scope->operations.size() > 0) // check the scope contains executable operations
+        {
+            int childStart = count; // this is the entry point to the child
+
+            vm_method_local methodLocal;
+            methodLocal.position = childStart;
+            methodLocal.scope = child_scope;
+            methods.push_back(methodLocal);
+
+            vm_generate(*child_scope, scope, options, program, count, childStart);
+        }
+    }
+
+    start = count; // set this after children are done, and before count is incremented
+
+    int stacksize = 0;
+    for (auto& declare : scope.decls)
+    {
+        const vm_structure& structure = global.structures[declare.typeId];
+        int size = 0;
+        for (int i = 0; i < structure.fieldcount; i++)
+        {
+            size += structure.fields[i].size;
+        }
+
+        if ((declare.flags & VM_DECL_FLAGS_PARAMETER) == VM_DECL_FLAGS_PARAMETER)
+        {
             vm_stack_local local;
             local.offset = stacksize;
             local.type = structure;
+            local.reg = VM_REGISTER_ESP;
+            locals.push_back(local);
+            parameters.push_back(local);
+            
+            stacksize += VM_ALIGN_16(size); // aligning
+        }
+        else
+        {
+            vm_stack_local local;
+            local.offset = stacksize;
+            local.type = structure;
+            local.reg = VM_REGISTER_ESP;
             locals.push_back(local);
 
             stacksize += VM_ALIGN_16(size); // aligning
         }
-        else if (operation.code == VM_LABEL)
+    }
+
+    vm_push_reg(program, count, VM_REGISTER_EBP);
+    vm_mov_reg_to_reg_x64(program, count, VM_REGISTER_EBP, VM_REGISTER_ESP);
+    vm_sub_imm_to_reg_x64(program, count, VM_REGISTER_ESP, stacksize); // grow stack
+
+    int parameterCount = 0;
+    for (auto& parameter : parameters)
+    {
+        const vm_structure& structure = parameter.type;
+        int size = 0;
+        for (int i = 0; i < structure.fieldcount; i++)
+        {
+            size += structure.fields[i].size;
+        }
+
+        const int returnInstructionPtrSize = 8;
+        vm_mov_memory_to_reg_x64(program, count, VM_REGISTER_EAX, VM_REGISTER_EBP, (parameterCount + 1) * 8 + returnInstructionPtrSize);
+        
+        // copy each of the fields for the structs to the local variables (parameters)
+        // via mov, this is somewhat inefficent
+        for (int i = 0; i < structure.fieldcount; i++)
+        {
+            vm_mov_memory_to_reg(program, count, VM_REGISTER_EBX, VM_REGISTER_EAX, -structure.fields[i].offset);
+
+            int fieldOffset = structure.fields[i].offset;
+            int fieldSize = structure.fields[i].size;
+            int offset = stacksize - parameter.offset - fieldOffset - fieldSize;
+            vm_mov_reg_to_memory(program, count, VM_REGISTER_ESP, offset, VM_REGISTER_EBX);
+        }
+
+        parameterCount++;
+    }
+
+    for (auto& operation : scope.operations)
+    {
+        if (operation.code == VM_LABEL)
         {
             vm_label_target label;
             label.labelId = operation.arg1;
@@ -524,10 +655,8 @@ void vm_generate(const std::vector<vm_operation>& operations, const std::vector<
             labels.push_back(label);
         }
     }
-
-    vm_sub_imm_to_reg_x64(program, count, VM_REGISTER_ESP, stacksize); // grow stack
-
-    for (auto& operation : operations)
+    
+    for (auto& operation : scope.operations)
     {
         if (operation.code == VM_STORE_1)
         {
@@ -629,6 +758,44 @@ void vm_generate(const std::vector<vm_operation>& operations, const std::vector<
             vm_reserve2(program, count);
             jumps.push_back(jump);
         }
+        else if (operation.code == VM_CALL)
+        {
+            // what should happen is we should call LEA on each of the parameters to a register
+            // then call push to plop them onto the stack (this is for a cstdcall, rather than a fastcall)
+            // then call the method
+            // after the method is called reclaim the stack space
+
+            const int size = 8; // 64-bit memory address
+            
+            auto& method = global.methods.at(operation.arg1);
+            int methodstacksize = 0;
+            for (int i = method.paramcount-1; i >= 0; i--)
+            {
+                int typeId = method.parameters[i].typeId;
+                auto& structure = global.structures.at(typeId);
+
+                int localId = (operation.arg2 >> (i * size)) & 0xff;
+                vm_stack_local& local = locals.at(localId);
+
+                int offset = stacksize + methodstacksize - local.offset - structure.fields[0].offset - structure.fields[0].size;
+
+                vm_load_effective_address(program, count, VM_REGISTER_EAX, VM_REGISTER_ESP, offset);
+                vm_push_reg(program, count, VM_REGISTER_EAX);
+
+                methodstacksize += size;
+            }
+
+            for (int i = 0; i < methods.size(); i++)
+            {
+                if (method.scope == methods.at(i).scope)
+                {
+                    vm_call(program, count, methods.at(i).position - count);
+                    break;
+                }
+            }
+
+            vm_sub_imm_to_reg_x64(program, count, VM_REGISTER_ESP, -methodstacksize); // restore stack (should be a add once implemented)
+        }
     }
 
     vm_mov_reg_to_reg_x64(program, count, VM_REGISTER_ESP, VM_REGISTER_EBP);
@@ -661,12 +828,13 @@ void vm_generate(const std::vector<vm_operation>& operations, const std::vector<
     }
 }
 
-void vm_execute(const std::vector<vm_operation>& operations, const std::vector<vm_structure>& structures, const vm_options& options)
+void vm_execute(const vm_scope& scope, const vm_options& options)
 {
-    unsigned char program[256];
+    unsigned char program[512];
     int count = 0;
+    int entryPoint = 0;
 
-    vm_generate(operations, structures, options, program, count);
+    vm_generate(scope, scope, options, program, count, entryPoint);
 
     void* data = VirtualAlloc(0, count, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     memcpy(data, program, count);
@@ -675,7 +843,7 @@ void vm_execute(const std::vector<vm_operation>& operations, const std::vector<v
     {
         FlushInstructionCache(0, data, count);
 
-        int(*fn)(void) = (int(*)(void)) data;
+        int(*fn)(void) = (int(*)(void))((unsigned char*)data + entryPoint);
         int result = fn();
         std::cout << result << std::endl;
     }
