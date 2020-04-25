@@ -1,0 +1,30 @@
+; Procs
+
+STRUCTURE sum
+    FIELD 4 : n
+    FIELD 4 : acc
+END
+
+
+PROC calculateSum(sum& : s):
+    STORE1 1
+    LEA S3, s.n
+    MOV S4, &S3
+    CMP S4, S1
+    JUMPEQ basecase
+    LEA S2, s.acc
+    ADD &S2, S4
+    SUB &S3, S1
+    CALL calculateSum(s)
+    basecase:
+    STORE1 1 
+    RETURN
+
+DECLARE sum : s
+STORE1 10
+MOV s.n, S1
+STORE1 0
+MOV s.acc, S1
+CALL calculateSum(s)
+
+MOV S1, s.acc

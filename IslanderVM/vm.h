@@ -19,6 +19,7 @@ enum vm_code
     VM_MUL = 0x3,
     VM_DIV = 0x4,
     VM_MOV = 0x5,
+    VM_LEA = 0x6,
     VM_LOAD_1 = 0x10,
     VM_LOAD_2 = 0x11,
     VM_LOAD_3 = 0x12,
@@ -41,7 +42,9 @@ enum vm_operation_flags
 {
     VM_OPERATION_FLAGS_NONE = 0x0,
     VM_OPERATION_FLAGS_FIELD1 = 0x1,
-    VM_OPERATION_FLAGS_FIELD2 = 0x2
+    VM_OPERATION_FLAGS_FIELD2 = 0x2,
+    VM_OPERATION_FLAGS_REFERENCE1 = 0x4,
+    VM_OPERATION_FLAGS_REFERENCE2 = 0x8
 };
 
 struct vm_operation

@@ -8,6 +8,7 @@ struct vm_stack_local
 {
     int reg;
     int offset;
+    bool reference;
     vm_structure type;
 };
 
@@ -85,6 +86,30 @@ void vm_mov_reg_to_memory(unsigned char* program, int &count, char dst, char src
     else
     {
         program[count++] = ((src & 0x7) << 3) | (0x0 << 6) | (dst & 0x7);
+    }
+}
+
+void vm_mov_reg_to_memory_x64(unsigned char* program, int &count, char dst, int dst_offset, char src)
+{
+    program[count++] = 0x48;
+    program[count++] = 0x89;
+
+    if (dst == VM_REGISTER_ESP)
+    {
+        program[count++] = ((src & 0x7) << 3) | 0x4 | (0x2 << 6);
+        program[count++] = 0x24;
+        program[count++] = (unsigned char)(dst_offset & 0xff);
+        program[count++] = (unsigned char)((dst_offset >> 8) & 0xff);
+        program[count++] = (unsigned char)((dst_offset >> 16) & 0xff);
+        program[count++] = (unsigned char)((dst_offset >> 24) & 0xff);
+    }
+    else
+    {
+        program[count++] = ((src & 0x7) << 3) | (0x2 << 6) | (dst & 0x7);
+        program[count++] = (unsigned char)(dst_offset & 0xff);
+        program[count++] = (unsigned char)((dst_offset >> 8) & 0xff);
+        program[count++] = (unsigned char)((dst_offset >> 16) & 0xff);
+        program[count++] = (unsigned char)((dst_offset >> 24) & 0xff);
     }
 }
 
@@ -420,6 +445,16 @@ void vm_mov(const vm_operation& operation, const std::vector<vm_stack_local>& lo
             vm_mov_memory_to_reg(program, count, operation.arg1, local.reg, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xfff].size);
         }
     }
+    else if (operation.flags == VM_OPERATION_FLAGS_REFERENCE1)
+    {
+        // mov register -> memory
+        vm_mov_reg_to_memory(program, count, operation.arg1, 0, operation.arg2);
+    }
+    else if (operation.flags == VM_OPERATION_FLAGS_REFERENCE2)
+    {
+        // mov memory -> register
+        vm_mov_memory_to_reg(program, count, operation.arg1, operation.arg2, 0);
+    }
     else if (operation.flags == VM_OPERATION_FLAGS_NONE)
     {
         // mov register -> register
@@ -457,6 +492,14 @@ void vm_add(const vm_operation& operation, const std::vector<vm_stack_local>& lo
         {
             vm_add_memory_to_reg(program, count, operation.arg1, local.reg, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xffff].size);
         }
+    }
+    else if ((operation.flags & VM_OPERATION_FLAGS_REFERENCE1) == VM_OPERATION_FLAGS_REFERENCE1)
+    {
+        vm_add_reg_to_memory(program, count, operation.arg1, 0, operation.arg2);
+    }
+    else if ((operation.flags & VM_OPERATION_FLAGS_REFERENCE2) == VM_OPERATION_FLAGS_REFERENCE2)
+    {
+        vm_add_memory_to_reg(program, count, operation.arg1, operation.arg2, 0);
     }
 }
 
@@ -554,6 +597,24 @@ void vm_load_effective_address(unsigned char* program, int& count, int dst, int 
     }
 }
 
+void vm_load_effective_address(const vm_operation& operation, const std::vector<vm_stack_local>& locals, unsigned char* program, int &count, int stacksize)
+{
+    if (operation.flags == VM_OPERATION_FLAGS_FIELD2)
+    {
+        auto& local = locals[(operation.arg2 >> 16) & 0xfff];
+        if (local.reference)
+        {
+            const int pointerSize = 8;
+            vm_mov_memory_to_reg_x64(program, count, operation.arg1, local.reg, stacksize - local.offset - pointerSize);
+            vm_load_effective_address(program, count, operation.arg1, operation.arg1, -local.type.fields[operation.arg2 & 0xfff].offset/* - local.type.fields[operation.arg2 & 0xffff].size*/);
+        }
+        else
+        {
+            // error
+        }
+    }
+}
+
 void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options& options, unsigned char* program, int &count, int& start)
 {
     std::vector<vm_label_target> labels;
@@ -577,6 +638,19 @@ void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options
         }
     }
 
+    for (auto& accessible_scope : global.children)
+    {
+        if (accessible_scope->operations.size() > 0) // check the scope contains executable operations
+        {
+            int childStart = count; // this is the entry point to the child
+
+            vm_method_local methodLocal;
+            methodLocal.position = childStart;
+            methodLocal.scope = accessible_scope;
+            methods.push_back(methodLocal);
+        }
+    }
+
     start = count; // set this after children are done, and before count is incremented
 
     int stacksize = 0;
@@ -595,9 +669,15 @@ void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options
             local.offset = stacksize;
             local.type = structure;
             local.reg = VM_REGISTER_ESP;
+            local.reference = (declare.flags & VM_DECL_FLAGS_REFERENCE) == VM_DECL_FLAGS_REFERENCE;
             locals.push_back(local);
             parameters.push_back(local);
             
+            if (local.reference)
+            {
+                size = 8; // 64 bit pointer
+            }
+
             stacksize += VM_ALIGN_16(size); // aligning
         }
         else
@@ -625,20 +705,29 @@ void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options
         {
             size += structure.fields[i].size;
         }
-
+        
         const int returnInstructionPtrSize = 8;
         vm_mov_memory_to_reg_x64(program, count, VM_REGISTER_EAX, VM_REGISTER_EBP, (parameterCount + 1) * 8 + returnInstructionPtrSize);
-        
-        // copy each of the fields for the structs to the local variables (parameters)
-        // via mov, this is somewhat inefficent
-        for (int i = 0; i < structure.fieldcount; i++)
-        {
-            vm_mov_memory_to_reg(program, count, VM_REGISTER_EBX, VM_REGISTER_EAX, -structure.fields[i].offset);
 
-            int fieldOffset = structure.fields[i].offset;
-            int fieldSize = structure.fields[i].size;
-            int offset = stacksize - parameter.offset - fieldOffset - fieldSize;
-            vm_mov_reg_to_memory(program, count, VM_REGISTER_ESP, offset, VM_REGISTER_EBX);
+        if (parameter.reference)
+        {
+            // copy the pointer to callee frame
+            int offset = stacksize - parameter.offset - 8;
+            vm_mov_reg_to_memory_x64(program, count, VM_REGISTER_ESP, offset, VM_REGISTER_EAX);
+        }
+        else
+        {
+            // copy each of the fields for the structs to the local variables (parameters)
+            // via mov, this is somewhat inefficent
+            for (int i = 0; i < structure.fieldcount; i++)
+            {
+                vm_mov_memory_to_reg(program, count, VM_REGISTER_EBX, VM_REGISTER_EAX, -structure.fields[i].offset);
+
+                int fieldOffset = structure.fields[i].offset;
+                int fieldSize = structure.fields[i].size;
+                int offset = stacksize - parameter.offset - fieldOffset - fieldSize;
+                vm_mov_reg_to_memory(program, count, VM_REGISTER_ESP, offset, VM_REGISTER_EBX);
+            }
         }
 
         parameterCount++;
@@ -677,6 +766,10 @@ void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options
         else if (operation.code == VM_MOV)
         {
             vm_mov(operation, locals, program, count, stacksize);
+        }
+        else if (operation.code == VM_LEA)
+        {
+            vm_load_effective_address(operation, locals, program, count, stacksize);
         }
         else if (operation.code == VM_ADD)
         {

@@ -15,6 +15,7 @@ enum vm_token
     VM_TOKEN_MUL = 0x3,
     VM_TOKEN_DIV = 0x4,
     VM_TOKEN_MOV = 0x5,
+    VM_TOKEN_LEA = 0x6,
     VM_TOKEN_LOAD1 = 0x10,
     VM_TOKEN_LOAD2 = 0x11,
     VM_TOKEN_LOAD3 = 0x12,
@@ -286,6 +287,10 @@ void get_next_token(const std::string& line, int* pos, vm_token* token)
     {
         *token = VM_TOKEN_MOV;
     }
+    else if (strcmp(data, "LEA") == 0)
+    {
+        *token = VM_TOKEN_LEA;
+    }
     else if (strcmp(data, "CMP") == 0)
     {
         *token = VM_TOKEN_CMP;
@@ -492,7 +497,7 @@ bool read_vm_field(const std::string& input, const std::vector<vm_decl_name>& de
     return true;
 }
 
-bool read_vm_binary_op(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure>& structs, int* pos, int* start, vm_token* token, vm_operation* op, vm_code code)
+bool read_vm_binary_op(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure>& structs, int* pos, int* start, vm_token* token, vm_operation* op, vm_code code, int flags1, int flags2)
 {
     vm_token store = *token;
     op->code = code;
@@ -500,6 +505,21 @@ bool read_vm_binary_op(const std::string& input, const std::vector<vm_decl_name>
 
     *start = *pos;
     get_next_token(input, pos, token);
+    
+    if ((flags1 & *token) == VM_TOKEN_NONE)
+    {
+        // error
+        return false;
+    }
+
+    if (*token == VM_TOKEN_ADDRESS)
+    {
+        op->flags |= VM_OPERATION_FLAGS_REFERENCE1;
+
+        *start = *pos;
+        get_next_token(input, pos, token);
+    }
+
     if (*token == VM_TOKEN_LOCATION1)
     {
         op->arg1 = 0;
@@ -518,13 +538,6 @@ bool read_vm_binary_op(const std::string& input, const std::vector<vm_decl_name>
     }
     else if (*token == VM_TOKEN_LITERAL)
     {
-        // special case
-        if (code == VM_MUL)
-        {
-            // error: dst of memory not supported
-            return false;
-        }
-
         int delcId;
         int field;
         bool res = read_vm_field(input, decls, structs, pos, start, token, &delcId, &field);
@@ -553,6 +566,21 @@ bool read_vm_binary_op(const std::string& input, const std::vector<vm_decl_name>
 
     *start = *pos;
     get_next_token(input, pos, token);
+
+    if ((flags2 & *token) == VM_TOKEN_NONE)
+    {
+        // error
+        return false;
+    }
+
+    if (*token == VM_TOKEN_ADDRESS)
+    {
+        op->flags |= VM_OPERATION_FLAGS_REFERENCE2;
+
+        *start = *pos;
+        get_next_token(input, pos, token);
+    }
+
     if (*token == VM_TOKEN_LOCATION1)
     {
         op->arg2 = 0;
@@ -571,7 +599,8 @@ bool read_vm_binary_op(const std::string& input, const std::vector<vm_decl_name>
     }
     else if (*token == VM_TOKEN_LITERAL)
     {
-        if ((op->flags & VM_OPERATION_FLAGS_FIELD1) == VM_OPERATION_FLAGS_FIELD1)
+        if (((op->flags & VM_OPERATION_FLAGS_FIELD1) == VM_OPERATION_FLAGS_FIELD1) ||
+            ((op->flags & VM_OPERATION_FLAGS_REFERENCE1) == VM_OPERATION_FLAGS_REFERENCE1))
         {
             // error - cannot move between two memory locations
             return false;
@@ -598,6 +627,13 @@ bool read_vm_binary_op(const std::string& input, const std::vector<vm_decl_name>
     return true;
 }
 
+bool read_vm_binary_op(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure>& structs, int* pos, int* start, vm_token* token, vm_operation* op, vm_code code)
+{
+    return read_vm_binary_op(input, decls, structs, pos, start, token, op, code,
+        VM_TOKEN_LOCATION1 | VM_TOKEN_LOCATION2 | VM_TOKEN_LOCATION3 | VM_TOKEN_LOCATION4 | VM_TOKEN_LITERAL | VM_TOKEN_ADDRESS,
+        VM_TOKEN_LOCATION1 | VM_TOKEN_LOCATION2 | VM_TOKEN_LOCATION3 | VM_TOKEN_LOCATION4 | VM_TOKEN_LITERAL | VM_TOKEN_ADDRESS);
+}
+
 bool read_vm_add(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure>& structs, int* pos, int* start, vm_token* token, vm_operation* op)
 {
     return read_vm_binary_op(input, decls, structs, pos, start, token, op, VM_ADD);
@@ -615,12 +651,21 @@ bool read_vm_div(const std::string& input, const std::vector<vm_decl_name>& decl
 
 bool read_vm_mul(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure>& structs, int* pos, int* start, vm_token* token, vm_operation* op)
 {
-    return read_vm_binary_op(input, decls, structs, pos, start, token, op, VM_MUL);
+    return read_vm_binary_op(input, decls, structs, pos, start, token, op, VM_MUL,
+        VM_TOKEN_LOCATION1 | VM_TOKEN_LOCATION2 | VM_TOKEN_LOCATION3 | VM_TOKEN_LOCATION4 | VM_TOKEN_ADDRESS,
+        VM_TOKEN_LOCATION1 | VM_TOKEN_LOCATION2 | VM_TOKEN_LOCATION3 | VM_TOKEN_LOCATION4 | VM_TOKEN_LITERAL | VM_TOKEN_ADDRESS);
 }
 
 bool read_vm_mov(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure>& structs, int* pos, int* start, vm_token* token, vm_operation* op)
 {
     return read_vm_binary_op(input, decls, structs, pos, start, token, op, VM_MOV);
+}
+
+bool read_vm_lea(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure>& structs, int* pos, int* start, vm_token* token, vm_operation* op)
+{
+    return read_vm_binary_op(input, decls, structs, pos, start, token, op, VM_LEA, 
+        VM_TOKEN_LOCATION1 | VM_TOKEN_LOCATION2 | VM_TOKEN_LOCATION3 | VM_TOKEN_LOCATION4,
+        VM_TOKEN_LITERAL);
 }
 
 bool read_vm_cmp(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure>& structs, int* pos, int* start, vm_token* token, vm_operation* op)
@@ -1216,6 +1261,19 @@ bool load_file_and_execute(const char* filename, const vm_options& options, char
             {
                 success = false;
                 set_error(errorText, "Error: Unexpected token parsing MOV", errorLength, str, start, pos);
+                break;
+            }
+        }
+        else if (token == VM_TOKEN_LEA)
+        {
+            if (read_vm_lea(str, localscope->decls, globalscope.structures, &pos, &start, &token, &op))
+            {
+                localscope->operations.push_back(op);
+            }
+            else
+            {
+                success = false;
+                set_error(errorText, "Error: Unexpected token parsing LEA", errorLength, str, start, pos);
                 break;
             }
         }

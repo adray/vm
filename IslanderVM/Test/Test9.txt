@@ -5,29 +5,17 @@ STRUCTURE type
     FIELD 4 : y
 END
 
-;PROC Sum(4 : x, 4 : y):
-;    ADD x, y
-;    MOV S1, x
-;    RETURN
-
-; EBP +8 = t3 PTR
-; EBP +16 = t2
-; EBP +24 = t1
 PROC Sum2(type : t1, type : t2, type& : t3):
-    STORE1 0
-    ADD S1, t1.x
+    MOV S1, t1.x
     ADD S1, t2.x
-    MOV t3.x, S1
+    LEA S2, t3.x
+    MOV &S2, S1
     
-    STORE1 0
-    ADD S1, t1.y
+    MOV S1, t1.y
     ADD S1, t2.y
-    MOV t3.y, S1
-    RETURN
-    
-;STORE1 55
-;STORE2 60
-;CALL Sum(S1, S2)
+    LEA S2, t3.y
+    MOV &S2, S1
+    RETURN    
 
 DECLARE type : t1
 STORE1 20
@@ -44,5 +32,5 @@ MOV t2.y, S2
 DECLARE type : t3
 CALL Sum2(t1, t2, t3)
 
-MOV S1, t3.x
+MOV S1, t3.x ; 20 + 25 = 45
 
