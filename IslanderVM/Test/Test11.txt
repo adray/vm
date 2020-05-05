@@ -7,11 +7,12 @@ END
 
 
 PROC calculateSum(sum& : s):
-    STORE1 1
+    STORE1 0
     LEA S3, s.n
     MOV S4, &S3
     CMP S4, S1
     JUMPEQ basecase
+    STORE1 1
     LEA S2, s.acc
     ADD &S2, S4
     SUB &S3, S1
