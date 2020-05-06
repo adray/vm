@@ -255,6 +255,20 @@ void vm_sub_reg_to_reg(unsigned char* program, int& count, char dst, char src)
     vm_op_reg_to_reg(0x29, program, count, dst, src);
 }
 
+void vm_inc_register(unsigned char* program, int& count, char dst)
+{
+    program[count++] = 0x40;
+    program[count++] = 0xFF;
+    program[count++] = 0xC0 | ((dst & 0x7) << 0);
+}
+
+void vm_dec_register(unsigned char* program, int& count, char dst)
+{
+    program[count++] = 0x40;
+    program[count++] = 0xFF;
+    program[count++] = 0xC8 | ((dst & 0x7) << 0);
+}
+
 void vm_op_reg_to_memory(unsigned char op, unsigned char* program, int& count, char dst, int dst_offset, char src)
 {
     program[count++] = op;
@@ -679,6 +693,16 @@ void vm_load_effective_address(const vm_operation& operation, const std::vector<
     }
 }
 
+void vm_inc(const vm_operation& operation, unsigned char* program, int &count)
+{
+    vm_inc_register(program, count, operation.arg1 & 0xffff);
+}
+
+void vm_dec(const vm_operation& operation, unsigned char* program, int &count)
+{
+    vm_dec_register(program, count, operation.arg1 & 0xffff);
+}
+
 void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options& options, unsigned char* program, int &count, int& start)
 {
     std::vector<vm_label_target> labels;
@@ -835,6 +859,14 @@ void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options
         else if (operation.code == VM_LEA)
         {
             vm_load_effective_address(operation, locals, program, count, stacksize);
+        }
+        else if (operation.code == VM_INC)
+        {
+            vm_inc(operation, program, count);
+        }
+        else if (operation.code == VM_DEC)
+        {
+            vm_dec(operation, program, count);
         }
         else if (operation.code == VM_ADD)
         {

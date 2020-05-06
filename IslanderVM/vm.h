@@ -20,6 +20,8 @@ enum vm_code
     VM_DIV = 0x4,
     VM_MOV = 0x5,
     VM_LEA = 0x6,
+    VM_INC = 0x7,
+    VM_DEC = 0x8,
     VM_LOAD_1 = 0x10,
     VM_LOAD_2 = 0x11,
     VM_LOAD_3 = 0x12,

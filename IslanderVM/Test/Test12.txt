@@ -1,0 +1,16 @@
+; INC/DEC
+STORE1 5
+INC S1
+STORE2 6
+CMP S1, S2
+JUMPEQ Next
+JUMP Fail
+Next:
+DEC S1
+STORE2 5
+CMP S1, S2
+JUMPEQ End
+Fail:
+STORE1 0
+End:
+; 5 on success

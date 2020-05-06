@@ -16,6 +16,8 @@ enum vm_token
     VM_TOKEN_DIV = 0x4,
     VM_TOKEN_MOV = 0x5,
     VM_TOKEN_LEA = 0x6,
+    VM_TOKEN_INC = 0x7,
+    VM_TOKEN_DEC = 0x8,
     VM_TOKEN_LOAD1 = 0x10,
     VM_TOKEN_LOAD2 = 0x11,
     VM_TOKEN_LOAD3 = 0x12,
@@ -290,6 +292,14 @@ void get_next_token(const std::string& line, int* pos, vm_token* token)
     else if (strcmp(data, "LEA") == 0)
     {
         *token = VM_TOKEN_LEA;
+    }
+    else if (strcmp(data, "INC") == 0)
+    {
+        *token = VM_TOKEN_INC;
+    }
+    else if (strcmp(data, "DEC") == 0)
+    {
+        *token = VM_TOKEN_DEC;
     }
     else if (strcmp(data, "CMP") == 0)
     {
@@ -671,6 +681,72 @@ bool read_vm_lea(const std::string& input, const std::vector<vm_decl_name>& decl
 bool read_vm_cmp(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure>& structs, int* pos, int* start, vm_token* token, vm_operation* op)
 {
     return read_vm_binary_op(input, decls, structs, pos, start, token, op, VM_CMP);
+}
+
+bool read_vm_unary_op(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure>& structs, int* pos, int* start, vm_token* token, vm_operation* op, vm_code code)
+{
+    vm_token store = *token;
+    op->code = code;
+    op->flags = 0;
+
+    *start = *pos;
+    get_next_token(input, pos, token);
+
+    if (*token == VM_TOKEN_ADDRESS)
+    {
+        op->flags |= VM_OPERATION_FLAGS_REFERENCE1;
+
+        *start = *pos;
+        get_next_token(input, pos, token);
+    }
+
+    if (*token == VM_TOKEN_LOCATION1)
+    {
+        op->arg1 = 0;
+    }
+    else if (*token == VM_TOKEN_LOCATION2)
+    {
+        op->arg1 = 1;
+    }
+    else if (*token == VM_TOKEN_LOCATION3)
+    {
+        op->arg1 = 2;
+    }
+    else if (*token == VM_TOKEN_LOCATION4)
+    {
+        op->arg1 = 3;
+    }
+    else if (*token == VM_TOKEN_LITERAL)
+    {
+        int delcId;
+        int field;
+        bool res = read_vm_field(input, decls, structs, pos, start, token, &delcId, &field);
+        if (!res)
+        {
+            // error
+            return false;
+        }
+
+        op->flags |= VM_OPERATION_FLAGS_FIELD1;
+        op->arg1 = (delcId << 16) | field;
+    }
+    else
+    {
+        // error
+        return false;
+    }
+
+    return true;
+}
+
+bool read_vm_inc(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure>& structs, int* pos, int* start, vm_token* token, vm_operation* op)
+{
+    return read_vm_unary_op(input, decls, structs, pos, start, token, op, VM_INC);
+}
+
+bool read_vm_dec(const std::string& input, const std::vector<vm_decl_name>& decls, const std::vector<vm_structure>& structs, int* pos, int* start, vm_token* token, vm_operation* op)
+{
+    return read_vm_unary_op(input, decls, structs, pos, start, token, op, VM_DEC);
 }
 
 void read_vm_structure_name(const std::string& input, int start, char* name)
@@ -1417,6 +1493,34 @@ bool load_file_and_execute(const char* filename, const vm_options& options, char
 
             vm_operation operation;
             if (read_vm_label(localscope->labels, str, &pos, &start, &token, &operation))
+            {
+                localscope->operations.push_back(operation);
+            }
+            else
+            {
+                success = false;
+                set_error(errorText, "Error: Unexpected token", errorLength, str, start, pos);
+                break;
+            }
+        }
+        else if (token == VM_TOKEN_INC)
+        {
+            vm_operation operation;
+            if (read_vm_inc(str, localscope->decls, globalscope.structures, &pos, &start, &token, &operation))
+            {
+                localscope->operations.push_back(operation);
+            }
+            else
+            {
+                success = false;
+                set_error(errorText, "Error: Unexpected token", errorLength, str, start, pos);
+                break;
+            }
+        }
+        else if (token == VM_TOKEN_DEC)
+        {
+            vm_operation operation;
+            if (read_vm_dec(str, localscope->decls, globalscope.structures, &pos, &start, &token, &operation))
             {
                 localscope->operations.push_back(operation);
             }
