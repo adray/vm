@@ -1,4 +1,5 @@
 #include "vm.h"
+#include "emit.h"
 #include <Windows.h>
 #include <iostream>
 
@@ -32,28 +33,9 @@ struct vm_method_local
     vm_scope* scope;
 };
 
-enum vm_register
+void vm_cpuid(const vm_instruction_table& table, unsigned char* program, int& count)
 {
-    VM_REGISTER_EAX = 0x0,
-    VM_REGISTER_ECX = 0x1,
-    VM_REGISTER_EDX = 0x2,
-    VM_REGISTER_EBX = 0x3,
-    VM_REGISTER_ESP = 0x4,
-    VM_REGISTER_EBP = 0x5,
-    VM_REGISTER_R0 = 0x8,
-    VM_REGISTER_R1 = 0x9,
-    VM_REGISTER_R2 = 0x10,
-    VM_REGISTER_R3 = 0x11,
-    VM_REGISTER_R4 = 0x12,
-    VM_REGISTER_R5 = 0x13,
-    VM_REGISTER_R6 = 0x14,
-    VM_REGISTER_R7 = 0x15
-};
-
-void vm_cpuid(unsigned char* program, int& count)
-{
-    program[count++] = 0xf;
-    program[count++] = 0xa2;
+    vm_emit(table.cpuid, program, count, 0, 0, 0, 0);
 }
 
 void vm_reserve(unsigned char* program, int& count)
@@ -72,21 +54,6 @@ void vm_reserve3(unsigned char* program, int& count)
     program[count++] = 0x90; // nop
     program[count++] = 0x90; // nop
     program[count++] = 0x90; // nop
-}
-
-void vm_mov_reg_to_memory(unsigned char* program, int &count, char dst, char src)
-{
-    program[count++] = 0x89;
-
-    if (dst == VM_REGISTER_ESP)
-    {
-        program[count++] = ((src & 0x7) << 3) | 0x4 | (0x0 << 6);
-        program[count++] = 0x24;
-    }
-    else
-    {
-        program[count++] = ((src & 0x7) << 3) | (0x0 << 6) | (dst & 0x7);
-    }
 }
 
 void vm_mov_reg_to_memory_x64(unsigned char* program, int &count, char dst, int dst_offset, char src)
@@ -110,67 +77,6 @@ void vm_mov_reg_to_memory_x64(unsigned char* program, int &count, char dst, int 
         program[count++] = (unsigned char)((dst_offset >> 8) & 0xff);
         program[count++] = (unsigned char)((dst_offset >> 16) & 0xff);
         program[count++] = (unsigned char)((dst_offset >> 24) & 0xff);
-    }
-}
-
-void vm_mov_reg_to_memory(unsigned char* program, int &count, char dst, int dst_offset, char src)
-{
-    program[count++] = 0x89;
-
-    if (dst == VM_REGISTER_ESP)
-    {
-        program[count++] = ((src & 0x7) << 3) | 0x4 | (0x2 << 6);
-        program[count++] = 0x24;
-        program[count++] = (unsigned char)(dst_offset & 0xff);
-        program[count++] = (unsigned char)((dst_offset >> 8) & 0xff);
-        program[count++] = (unsigned char)((dst_offset >> 16) & 0xff);
-        program[count++] = (unsigned char)((dst_offset >> 24) & 0xff);
-    }
-    else
-    {
-        program[count++] = ((src & 0x7) << 3) | (0x2 << 6) | (dst & 0x7);
-        program[count++] = (unsigned char)(dst_offset & 0xff);
-        program[count++] = (unsigned char)((dst_offset >> 8) & 0xff);
-        program[count++] = (unsigned char)((dst_offset >> 16) & 0xff);
-        program[count++] = (unsigned char)((dst_offset >> 24) & 0xff);
-    }
-}
-
-void vm_mov_memory_to_reg(unsigned char* program, int &count, char dst, char src)
-{
-    program[count++] = 0x8b;
-
-    if (src == VM_REGISTER_ESP)
-    {
-        program[count++] = ((dst & 0x7) << 3) | 0x4 | (0x0 << 6);
-        program[count++] = 0x24;
-    }
-    else
-    {
-        program[count++] = ((dst & 0x7) << 3) | (0x0 << 6) | (src & 0x7);
-    }
-}
-
-void vm_mov_memory_to_reg(unsigned char* program, int &count, char dst, char src, int src_offset)
-{
-    program[count++] = 0x8b;
-
-    if (src == VM_REGISTER_ESP)
-    {
-        program[count++] = ((dst & 0x7) << 3) | 0x4 | (0x2 << 6);
-        program[count++] = 0x24;
-        program[count++] = (unsigned char)(src_offset & 0xff);
-        program[count++] = (unsigned char)((src_offset >> 8) & 0xff);
-        program[count++] = (unsigned char)((src_offset >> 16) & 0xff);
-        program[count++] = (unsigned char)((src_offset >> 24) & 0xff);
-    }
-    else
-    {
-        program[count++] = ((dst & 0x7) << 3) | (0x2 << 6) | (src & 0x7);
-        program[count++] = (unsigned char)(src_offset & 0xff);
-        program[count++] = (unsigned char)((src_offset >> 8) & 0xff);
-        program[count++] = (unsigned char)((src_offset >> 16) & 0xff);
-        program[count++] = (unsigned char)((src_offset >> 24) & 0xff);
     }
 }
 
@@ -198,15 +104,6 @@ void vm_mov_memory_to_reg_x64(unsigned char* program, int &count, char dst, char
     }
 }
 
-void vm_mov_imm_to_reg(unsigned char* program, int &count, int imm, char reg)
-{
-    program[count++] = 0xb8 | reg;
-    program[count++] = (unsigned char)(imm & 0xff);
-    program[count++] = (unsigned char)((imm >> 8) & 0xff);
-    program[count++] = (unsigned char)((imm >> 16) & 0xff);
-    program[count++] = (unsigned char)((imm >> 24) & 0xff);
-}
-
 void vm_mov_reg_to_reg_x64(unsigned char* program, int &count, char dst, char src)
 {
     program[count++] = 0x48;
@@ -219,9 +116,9 @@ void vm_cdq(unsigned char* program, int &count)
     program[count++] = 0x99;
 }
 
-void vm_return(unsigned char* program, int &count)
+void vm_return(const vm_instruction_table& table, unsigned char* program, int &count)
 {
-    program[count++] = 0xc3;
+    vm_emit(table.ret, program, count, 0, 0, 0, 0);
 }
 
 void vm_push_reg(unsigned char* program, int &count, char reg)
@@ -243,11 +140,6 @@ void vm_op_reg_to_reg(unsigned char op, unsigned char* program, int &count, char
 void vm_mov_reg_to_reg(unsigned char* program, int &count, char dst, char src)
 {
     vm_op_reg_to_reg(0x89, program, count, dst, src);
-}
-
-void vm_add_reg_to_reg(unsigned char* program, int& count, char dst, char src)
-{
-    vm_op_reg_to_reg(0x1, program, count, dst, src);
 }
 
 void vm_sub_reg_to_reg(unsigned char* program, int& count, char dst, char src)
@@ -292,11 +184,6 @@ void vm_op_reg_to_memory(unsigned char op, unsigned char* program, int& count, c
     }
 }
 
-void vm_add_reg_to_memory(unsigned char* program, int& count, char dst, int dst_offset, char src)
-{
-    vm_op_reg_to_memory(0x1, program, count, dst, dst_offset, src);
-}
-
 void vm_sub_reg_to_memory(unsigned char* program, int& count, char dst, int dst_offset, char src)
 {
     vm_op_reg_to_memory(0x29, program, count, dst, dst_offset, src);
@@ -323,11 +210,6 @@ void vm_op_memory_to_reg(unsigned char op, unsigned char* program, int &count, c
         program[count++] = (unsigned char)((src_offset >> 16) & 0xff);
         program[count++] = (unsigned char)((src_offset >> 24) & 0xff);
     }
-}
-
-void vm_add_memory_to_reg(unsigned char* program, int &count, char dst, char src, int src_offset)
-{
-    vm_op_memory_to_reg(0x3, program, count, dst, src, src_offset);
 }
 
 void vm_sub_memory_to_reg(unsigned char* program, int &count, char dst, char src, int src_offset)
@@ -409,42 +291,12 @@ void vm_mul_memory_to_reg(unsigned char* program, int &count, char dst, char src
     }
 }
 
-void vm_div_reg(unsigned char* program, int& count, char reg)
+void vm_div_reg(const vm_instruction_table& table, unsigned char* program, int& count, char reg)
 {
-    program[count++] = 0xf7;
-    program[count++] = 0xf8 | ((reg & 0x7) << 0);
+    vm_emit(table.idiv, program, count, reg, 0, 0, 0);
 }
 
-void vm_cmp_reg_with_reg(unsigned char* program, int& count, char reg1, char reg2)
-{
-    program[count++] = 0x39;
-    program[count++] = 0xC0 | ((reg2 & 0x7) << 0x3) | ((reg1 & 0x7) << 0);
-}
-
-void vm_cmp_memory_with_reg(unsigned char* program, int& count, char dst, int dst_offset, char src)
-{
-    program[count++] = 0x39;
-
-    if (dst == VM_REGISTER_ESP)
-    {
-        program[count++] = ((src & 0x7) << 3) | 0x4 | (0x2 << 6);
-        program[count++] = 0x24;
-        program[count++] = (unsigned char)(dst_offset & 0xff);
-        program[count++] = (unsigned char)((dst_offset >> 8) & 0xff);
-        program[count++] = (unsigned char)((dst_offset >> 16) & 0xff);
-        program[count++] = (unsigned char)((dst_offset >> 24) & 0xff);
-    }
-    else
-    {
-        program[count++] = ((src & 0x7) << 3) | (0x2 << 6) | (dst & 0x7);
-        program[count++] = (unsigned char)(dst_offset & 0xff);
-        program[count++] = (unsigned char)((dst_offset >> 8) & 0xff);
-        program[count++] = (unsigned char)((dst_offset >> 16) & 0xff);
-        program[count++] = (unsigned char)((dst_offset >> 24) & 0xff);
-    }
-}
-
-void vm_store(const vm_operation& operation, const std::vector<vm_stack_local>& locals, unsigned char* program, int &count, int stacksize, int reg)
+void vm_store(const vm_operation& operation, const std::vector<vm_stack_local>& locals, const vm_instruction_table& table, unsigned char* program, int &count, int stacksize, int reg)
 {
     if (operation.arg2 == 1)
     {
@@ -452,17 +304,25 @@ void vm_store(const vm_operation& operation, const std::vector<vm_stack_local>& 
         auto& local = locals[(operation.arg1 >> 16) & 0xfff];
         if (local.type.fields[operation.arg1 & 0xfff].size == 4)
         {
-            vm_mov_memory_to_reg(program, count, reg, local.reg, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xfff].size);
+            vm_instruction ins;
+            if (vm_find_ins(table.mov, sizeof(table.mov), VM_INSTRUCTION_BINARY, VM_INSTRUCTION_CODE_SRC_MEMORY | VM_INSTRUCTION_CODE_DST_REGISTER | VM_INSTRUCTION_CODE_OFFSET, &ins))
+            {
+                vm_emit(ins, program, count, reg, local.reg, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xfff].size, 0);
+            }
         }
     }
     else
     {
         // mov imm -> register (EAX)
-        vm_mov_imm_to_reg(program, count, operation.arg1, reg);
+        vm_instruction ins;
+        if (vm_find_ins(table.mov, sizeof(table.mov), VM_INSTRUCTION_BINARY, VM_INSTRUCTION_CODE_DST_REGISTER | VM_INSTRUCTION_CODE_IMMEDIATE, &ins))
+        {
+            vm_emit(ins, program, count, reg, 0, 0, operation.arg1);
+        }
     }
 }
 
-void vm_mov(const vm_operation& operation, const std::vector<vm_stack_local>& locals, unsigned char* program, int &count, int stacksize)
+void vm_mov(const vm_operation& operation, const std::vector<vm_stack_local>& locals, const vm_instruction_table& table, unsigned char* program, int &count, int stacksize)
 {
     if ((operation.flags & VM_OPERATION_FLAGS_FIELD1) == VM_OPERATION_FLAGS_FIELD1)
     {
@@ -470,7 +330,11 @@ void vm_mov(const vm_operation& operation, const std::vector<vm_stack_local>& lo
         auto& local = locals[(operation.arg1 >> 16) & 0xfff];
         if (local.type.fields[operation.arg1 & 0xfff].size == 4)
         {
-            vm_mov_reg_to_memory(program, count, local.reg, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xfff].size, operation.arg2);
+            vm_instruction ins;
+            if (vm_find_ins(table.mov, sizeof(table.mov), VM_INSTRUCTION_BINARY, VM_INSTRUCTION_CODE_DST_MEMORY | VM_INSTRUCTION_CODE_SRC_REGISTER | VM_INSTRUCTION_CODE_OFFSET, &ins))
+            {
+                vm_emit(ins, program, count, local.reg, operation.arg2, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xfff].size, 0);
+            }
         }
     }
     else if ((operation.flags & VM_OPERATION_FLAGS_FIELD2) == VM_OPERATION_FLAGS_FIELD2)
@@ -479,27 +343,43 @@ void vm_mov(const vm_operation& operation, const std::vector<vm_stack_local>& lo
         auto& local = locals[(operation.arg2 >> 16) & 0xfff];
         if (local.type.fields[operation.arg2 & 0xfff].size == 4)
         {
-            vm_mov_memory_to_reg(program, count, operation.arg1, local.reg, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xfff].size);
+            vm_instruction ins;
+            if (vm_find_ins(table.mov, sizeof(table.mov), VM_INSTRUCTION_BINARY, VM_INSTRUCTION_CODE_SRC_MEMORY | VM_INSTRUCTION_CODE_DST_REGISTER | VM_INSTRUCTION_CODE_OFFSET, &ins))
+            {
+                vm_emit(ins, program, count, operation.arg1, local.reg, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xfff].size, 0);
+            }
         }
     }
     else if (operation.flags == VM_OPERATION_FLAGS_REFERENCE1)
     {
         // mov register -> memory
-        vm_mov_reg_to_memory(program, count, operation.arg1, 0, operation.arg2);
+        vm_instruction ins;
+        if (vm_find_ins(table.mov, sizeof(table.mov), VM_INSTRUCTION_BINARY, VM_INSTRUCTION_CODE_DST_MEMORY | VM_INSTRUCTION_CODE_SRC_REGISTER, &ins))
+        {
+            vm_emit(ins, program, count, operation.arg1, operation.arg2, 0, 0);
+        }
     }
     else if (operation.flags == VM_OPERATION_FLAGS_REFERENCE2)
     {
         // mov memory -> register
-        vm_mov_memory_to_reg(program, count, operation.arg1, operation.arg2, 0);
+        vm_instruction ins;
+        if (vm_find_ins(table.mov, sizeof(table.mov), VM_INSTRUCTION_BINARY, VM_INSTRUCTION_CODE_SRC_MEMORY | VM_INSTRUCTION_CODE_DST_REGISTER, &ins))
+        {
+            vm_emit(ins, program, count, operation.arg1, operation.arg2, 0, 0);
+        }
     }
     else if (operation.flags == VM_OPERATION_FLAGS_NONE)
     {
         // mov register -> register
-        vm_mov_reg_to_reg(program, count, operation.arg1, operation.arg2);
+        vm_instruction ins;
+        if (vm_find_ins(table.mov, sizeof(table.mov), VM_INSTRUCTION_BINARY, VM_INSTRUCTION_CODE_DST_REGISTER | VM_INSTRUCTION_CODE_SRC_REGISTER, &ins))
+        {
+            vm_emit(ins, program, count, operation.arg1, operation.arg2, 0, 0);
+        }
     }
 }
 
-void vm_add(const vm_operation& operation, const std::vector<vm_stack_local>& locals, unsigned char* program, int &count, int stacksize, const vm_options& options)
+void vm_add(const vm_operation& operation, const std::vector<vm_stack_local>& locals, const vm_instruction_table& table, unsigned char* program, int &count, int stacksize, const vm_options& options)
 {
     if (operation.flags == VM_OPERATION_FLAGS_NONE)
     {
@@ -509,7 +389,11 @@ void vm_add(const vm_operation& operation, const std::vector<vm_stack_local>& lo
         }
         else
         {
-            vm_add_reg_to_reg(program, count, operation.arg1, operation.arg2); // add register -> register
+            vm_instruction ins;
+            if (vm_find_ins(table.add, sizeof(table.add), VM_INSTRUCTION_BINARY, VM_INSTRUCTION_CODE_DST_REGISTER | VM_INSTRUCTION_CODE_SRC_REGISTER, &ins))
+            {
+                vm_emit(ins, program, count, operation.arg1, operation.arg2, 0, 0);
+            }
         }
     }
     else if ((operation.flags & VM_OPERATION_FLAGS_FIELD1) == VM_OPERATION_FLAGS_FIELD1)
@@ -518,7 +402,11 @@ void vm_add(const vm_operation& operation, const std::vector<vm_stack_local>& lo
         auto& local = locals[(operation.arg1 >> 16) & 0xfff];
         if (local.type.fields[operation.arg1 & 0xfff].size == 4)
         {
-            vm_add_reg_to_memory(program, count, local.reg, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xffff].size, operation.arg2);
+            vm_instruction ins;
+            if (vm_find_ins(table.add, sizeof(table.add), VM_INSTRUCTION_BINARY, VM_INSTRUCTION_CODE_DST_MEMORY | VM_INSTRUCTION_CODE_SRC_REGISTER | VM_INSTRUCTION_CODE_OFFSET, &ins))
+            {
+                vm_emit(ins, program, count, local.reg, operation.arg2, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xffff].size, 0);
+            }
         }
     }
     else if ((operation.flags & VM_OPERATION_FLAGS_FIELD2) == VM_OPERATION_FLAGS_FIELD2)
@@ -527,16 +415,28 @@ void vm_add(const vm_operation& operation, const std::vector<vm_stack_local>& lo
         auto& local = locals[(operation.arg2 >> 16) & 0xfff];
         if (local.type.fields[operation.arg2 & 0xfff].size == 4)
         {
-            vm_add_memory_to_reg(program, count, operation.arg1, local.reg, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xffff].size);
+            vm_instruction ins;
+            if (vm_find_ins(table.add, sizeof(table.add), VM_INSTRUCTION_BINARY, VM_INSTRUCTION_CODE_SRC_MEMORY | VM_INSTRUCTION_CODE_DST_REGISTER | VM_INSTRUCTION_CODE_OFFSET, &ins))
+            {
+                vm_emit(ins, program, count, operation.arg1, local.reg, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xffff].size, 0);
+            }
         }
     }
     else if ((operation.flags & VM_OPERATION_FLAGS_REFERENCE1) == VM_OPERATION_FLAGS_REFERENCE1)
     {
-        vm_add_reg_to_memory(program, count, operation.arg1, 0, operation.arg2);
+        vm_instruction ins;
+        if (vm_find_ins(table.add, sizeof(table.add), VM_INSTRUCTION_BINARY, VM_INSTRUCTION_CODE_DST_MEMORY | VM_INSTRUCTION_CODE_SRC_REGISTER | VM_INSTRUCTION_CODE_OFFSET, &ins))
+        {
+            vm_emit(ins, program, count, operation.arg1, operation.arg2, 0, 0);
+        }
     }
     else if ((operation.flags & VM_OPERATION_FLAGS_REFERENCE2) == VM_OPERATION_FLAGS_REFERENCE2)
     {
-        vm_add_memory_to_reg(program, count, operation.arg1, operation.arg2, 0);
+        vm_instruction ins;
+        if (vm_find_ins(table.add, sizeof(table.add), VM_INSTRUCTION_BINARY, VM_INSTRUCTION_CODE_SRC_MEMORY | VM_INSTRUCTION_CODE_DST_REGISTER | VM_INSTRUCTION_CODE_OFFSET, &ins))
+        {
+            vm_emit(ins, program, count, operation.arg1, operation.arg2, 0, 0);
+        }
     }
 }
 
@@ -609,12 +509,16 @@ void vm_mul(const vm_operation& operation, const std::vector<vm_stack_local>& lo
     }
 }
 
-void vm_cmp(const vm_operation& operation, const std::vector<vm_stack_local>& locals, unsigned char* program, int &count, int stacksize)
+void vm_cmp(const vm_operation& operation, const std::vector<vm_stack_local>& locals, const vm_instruction_table& table, unsigned char* program, int &count, int stacksize)
 {
     if (operation.flags == VM_OPERATION_FLAGS_NONE)
     {
         // cmp register/register
-        vm_cmp_reg_with_reg(program, count, operation.arg1, operation.arg2);
+        vm_instruction ins;
+        if (vm_find_ins(table.cmp, sizeof(table.cmp), VM_INSTRUCTION_BINARY, VM_INSTRUCTION_CODE_DST_REGISTER | VM_INSTRUCTION_CODE_SRC_REGISTER, &ins))
+        {
+            vm_emit(ins, program, count, operation.arg1, operation.arg2, 0, 0);
+        }
     }
     else if ((operation.flags & (VM_OPERATION_FLAGS_FIELD1 | VM_OPERATION_FLAGS_FIELD2)) == (VM_OPERATION_FLAGS_FIELD1 | VM_OPERATION_FLAGS_FIELD2))
     {
@@ -626,7 +530,11 @@ void vm_cmp(const vm_operation& operation, const std::vector<vm_stack_local>& lo
         auto& local = locals[(operation.arg1 >> 16) & 0xfff];
         if (local.type.fields[operation.arg1 & 0xfff].size == 4)
         {
-            vm_cmp_memory_with_reg(program, count, local.reg, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xffff].size, operation.arg2);
+            vm_instruction ins;
+            if (vm_find_ins(table.cmp, sizeof(table.cmp), VM_INSTRUCTION_BINARY, VM_INSTRUCTION_CODE_SRC_REGISTER | VM_INSTRUCTION_CODE_DST_MEMORY | VM_INSTRUCTION_CODE_OFFSET, &ins))
+            {
+                vm_emit(ins, program, count, local.reg, operation.arg2, stacksize - local.offset - local.type.fields[operation.arg1 & 0xfff].offset - local.type.fields[operation.arg1 & 0xffff].size, 0);
+            }
         }
     }
     else if ((operation.flags & VM_OPERATION_FLAGS_FIELD2) == VM_OPERATION_FLAGS_FIELD2)
@@ -635,7 +543,11 @@ void vm_cmp(const vm_operation& operation, const std::vector<vm_stack_local>& lo
         auto& local = locals[(operation.arg2 >> 16) & 0xfff];
         if (local.type.fields[operation.arg2 & 0xfff].size == 4)
         {
-            vm_cmp_memory_with_reg(program, count, local.reg, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xffff].size, operation.arg1);
+            vm_instruction ins;
+            if (vm_find_ins(table.cmp, sizeof(table.cmp), VM_INSTRUCTION_BINARY, VM_INSTRUCTION_CODE_DST_REGISTER | VM_INSTRUCTION_CODE_SRC_MEMORY | VM_INSTRUCTION_CODE_OFFSET, &ins))
+            {
+                vm_emit(ins, program, count, operation.arg1, local.reg, stacksize - local.offset - local.type.fields[operation.arg2 & 0xfff].offset - local.type.fields[operation.arg2 & 0xffff].size, 0);
+            }
         }
     }
 }
@@ -651,31 +563,7 @@ void vm_call(unsigned char* program, int &count, int offset)
     program[count++] = (unsigned char)((offset >> 24) & 0xff);
 }
 
-void vm_load_effective_address(unsigned char* program, int& count, int dst, int src, int src_offset)
-{
-    program[count++] = 0x48;
-    program[count++] = 0x8D;
-
-    if (src == VM_REGISTER_ESP)
-    {
-        program[count++] = ((dst & 0x7) << 3) | 0x4 | (0x2 << 6);
-        program[count++] = 0x24;
-        program[count++] = (unsigned char)(src_offset & 0xff);
-        program[count++] = (unsigned char)((src_offset >> 8) & 0xff);
-        program[count++] = (unsigned char)((src_offset >> 16) & 0xff);
-        program[count++] = (unsigned char)((src_offset >> 24) & 0xff);
-    }
-    else
-    {
-        program[count++] = ((dst & 0x7) << 3) | (0x2 << 6) | (src & 0x7);
-        program[count++] = (unsigned char)(src_offset & 0xff);
-        program[count++] = (unsigned char)((src_offset >> 8) & 0xff);
-        program[count++] = (unsigned char)((src_offset >> 16) & 0xff);
-        program[count++] = (unsigned char)((src_offset >> 24) & 0xff);
-    }
-}
-
-void vm_load_effective_address(const vm_operation& operation, const std::vector<vm_stack_local>& locals, unsigned char* program, int &count, int stacksize)
+void vm_load_effective_address(const vm_operation& operation, const std::vector<vm_stack_local>& locals, const vm_instruction_table& table, unsigned char* program, int &count, int stacksize)
 {
     if (operation.flags == VM_OPERATION_FLAGS_FIELD2)
     {
@@ -684,7 +572,8 @@ void vm_load_effective_address(const vm_operation& operation, const std::vector<
         {
             const int pointerSize = 8;
             vm_mov_memory_to_reg_x64(program, count, operation.arg1, local.reg, stacksize - local.offset - pointerSize);
-            vm_load_effective_address(program, count, operation.arg1, operation.arg1, -local.type.fields[operation.arg2 & 0xfff].offset/* - local.type.fields[operation.arg2 & 0xffff].size*/);
+            //vm_load_effective_address(program, count, operation.arg1, operation.arg1, -local.type.fields[operation.arg2 & 0xfff].offset/* - local.type.fields[operation.arg2 & 0xffff].size*/);
+            vm_emit(table.lae, program, count, operation.arg1, operation.arg1, -local.type.fields[operation.arg2 & 0xfff].offset/* - local.type.fields[operation.arg2 & 0xffff].size*/, 0);
         }
         else
         {
@@ -703,7 +592,7 @@ void vm_dec(const vm_operation& operation, unsigned char* program, int &count)
     vm_dec_register(program, count, operation.arg1 & 0xffff);
 }
 
-void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options& options, unsigned char* program, int &count, int& start)
+void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options& options, const vm_instruction_table& table, unsigned char* program, int &count, int& start)
 {
     std::vector<vm_label_target> labels;
     std::vector<vm_stack_local> locals;
@@ -722,7 +611,7 @@ void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options
             methodLocal.scope = child_scope;
             methods.push_back(methodLocal);
 
-            vm_generate(*child_scope, scope, options, program, count, childStart);
+            vm_generate(*child_scope, scope, options, table, program, count, childStart);
         }
     }
 
@@ -806,16 +695,25 @@ void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options
         }
         else
         {
+            vm_instruction mov_reg_to_mem;
+            vm_find_ins(table.mov, sizeof(table.mov), VM_INSTRUCTION_BINARY, VM_INSTRUCTION_CODE_DST_REGISTER | VM_INSTRUCTION_CODE_SRC_MEMORY | VM_INSTRUCTION_CODE_OFFSET, &mov_reg_to_mem);
+            
+            vm_instruction mov_mem_to_reg;
+            vm_find_ins(table.mov, sizeof(table.mov), VM_INSTRUCTION_BINARY, VM_INSTRUCTION_CODE_DST_MEMORY | VM_INSTRUCTION_CODE_SRC_REGISTER | VM_INSTRUCTION_CODE_OFFSET, &mov_mem_to_reg);
+
             // copy each of the fields for the structs to the local variables (parameters)
             // via mov, this is somewhat inefficent
             for (int i = 0; i < structure.fieldcount; i++)
             {
-                vm_mov_memory_to_reg(program, count, VM_REGISTER_EBX, VM_REGISTER_EAX, -structure.fields[i].offset);
+                //vm_mov_memory_to_reg(program, count, VM_REGISTER_EBX, VM_REGISTER_EAX, -structure.fields[i].offset);
+                vm_emit(mov_reg_to_mem, program, count, VM_REGISTER_EBX, VM_REGISTER_EAX, -structure.fields[i].offset, 0);
 
                 int fieldOffset = structure.fields[i].offset;
                 int fieldSize = structure.fields[i].size;
                 int offset = stacksize - parameter.offset - fieldOffset - fieldSize;
-                vm_mov_reg_to_memory(program, count, VM_REGISTER_ESP, offset, VM_REGISTER_EBX);
+                //vm_mov_reg_to_memory(program, count, VM_REGISTER_ESP, offset, VM_REGISTER_EBX);
+                
+                vm_emit(mov_mem_to_reg, program, count, VM_REGISTER_ESP, VM_REGISTER_EBX, offset, 0);
             }
         }
 
@@ -838,27 +736,27 @@ void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options
     {
         if (operation.code == VM_STORE_1)
         {
-            vm_store(operation, locals, program, count, stacksize, VM_REGISTER_EAX);
+            vm_store(operation, locals, table, program, count, stacksize, VM_REGISTER_EAX);
         }
         else if (operation.code == VM_STORE_2)
         {
-            vm_store(operation, locals, program, count, stacksize, VM_REGISTER_ECX);
+            vm_store(operation, locals, table, program, count, stacksize, VM_REGISTER_ECX);
         }
         else if (operation.code == VM_STORE_3)
         {
-            vm_store(operation, locals, program, count, stacksize, VM_REGISTER_EDX);
+            vm_store(operation, locals, table, program, count, stacksize, VM_REGISTER_EDX);
         }
         else if (operation.code == VM_STORE_4)
         {
-            vm_store(operation, locals, program, count, stacksize, VM_REGISTER_EBX);
+            vm_store(operation, locals, table, program, count, stacksize, VM_REGISTER_EBX);
         }
         else if (operation.code == VM_MOV)
         {
-            vm_mov(operation, locals, program, count, stacksize);
+            vm_mov(operation, locals, table, program, count, stacksize);
         }
         else if (operation.code == VM_LEA)
         {
-            vm_load_effective_address(operation, locals, program, count, stacksize);
+            vm_load_effective_address(operation, locals, table, program, count, stacksize);
         }
         else if (operation.code == VM_INC)
         {
@@ -870,7 +768,7 @@ void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options
         }
         else if (operation.code == VM_ADD)
         {
-            vm_add(operation, locals, program, count, stacksize, options);
+            vm_add(operation, locals, table, program, count, stacksize, options);
         }
         else if (operation.code == VM_SUB)
         {
@@ -891,7 +789,7 @@ void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options
             vm_push_reg(program, count, VM_REGISTER_EDX); // push EDX
             vm_mov_reg_to_reg(program, count, VM_REGISTER_EAX, operation.arg1); // mov arg1 ->  EAX
             vm_cdq(program, count); // cdq
-            vm_div_reg(program, count, operation.arg2); // EAX = EDX:EAX / reg
+            vm_div_reg(table, program, count, operation.arg2); // EAX = EDX:EAX / reg
             vm_mov_reg_to_reg(program, count, operation.arg1, VM_REGISTER_EAX); // mov EAX -> arg1
             vm_pop_reg(program, count, VM_REGISTER_EDX); // pop to EDX
             if (operation.arg1 != VM_REGISTER_EAX)
@@ -901,7 +799,7 @@ void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options
         }
         else if (operation.code == VM_CMP)
         {
-            vm_cmp(operation, locals, program, count, stacksize);
+            vm_cmp(operation, locals, table, program, count, stacksize);
         }
         else if (operation.code == VM_LABEL)
         {
@@ -977,7 +875,8 @@ void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options
                 else
                 {
                     offset = stacksize + methodstacksize - local.offset - structure.fields[0].offset - structure.fields[0].size;
-                    vm_load_effective_address(program, count, VM_REGISTER_EAX, VM_REGISTER_ESP, offset);
+                    //vm_load_effective_address(program, count, VM_REGISTER_EAX, VM_REGISTER_ESP, offset);
+                    vm_emit(table.lae, program, count, VM_REGISTER_EAX, VM_REGISTER_ESP, offset, 0);
                 }
 
                 vm_push_reg(program, count, VM_REGISTER_EAX);
@@ -1000,7 +899,7 @@ void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options
 
     vm_mov_reg_to_reg_x64(program, count, VM_REGISTER_ESP, VM_REGISTER_EBP);
     vm_pop_reg(program, count, VM_REGISTER_EBP);
-    vm_return(program, count);
+    vm_return(table, program, count);
 
     for (auto& jump : jumps)
     {
@@ -1033,8 +932,9 @@ void vm_execute(const vm_scope& scope, const vm_options& options)
     unsigned char program[512];
     int count = 0;
     int entryPoint = 0;
+    vm_instruction_table table;
 
-    vm_generate(scope, scope, options, program, count, entryPoint);
+    vm_generate(scope, scope, options, table, program, count, entryPoint);
 
     void* data = VirtualAlloc(0, count, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     memcpy(data, program, count);
