@@ -147,20 +147,6 @@ void vm_sub_reg_to_reg(unsigned char* program, int& count, char dst, char src)
     vm_op_reg_to_reg(0x29, program, count, dst, src);
 }
 
-void vm_inc_register(unsigned char* program, int& count, char dst)
-{
-    program[count++] = 0x40;
-    program[count++] = 0xFF;
-    program[count++] = 0xC0 | ((dst & 0x7) << 0);
-}
-
-void vm_dec_register(unsigned char* program, int& count, char dst)
-{
-    program[count++] = 0x40;
-    program[count++] = 0xFF;
-    program[count++] = 0xC8 | ((dst & 0x7) << 0);
-}
-
 void vm_op_reg_to_memory(unsigned char op, unsigned char* program, int& count, char dst, int dst_offset, char src)
 {
     program[count++] = op;
@@ -582,14 +568,44 @@ void vm_load_effective_address(const vm_operation& operation, const std::vector<
     }
 }
 
-void vm_inc(const vm_operation& operation, unsigned char* program, int &count)
+void vm_inc(const vm_operation& operation, const std::vector<vm_stack_local>& locals, const vm_instruction_table& table, unsigned char* program, int &count, int stacksize)
 {
-    vm_inc_register(program, count, operation.arg1 & 0xffff);
+    if (operation.flags == VM_OPERATION_FLAGS_REFERENCE1)
+    {
+        vm_instruction ins;
+        if (vm_find_ins(table.inc, sizeof(table.inc), VM_INSTRUCTION_UNARY, VM_INSTRUCTION_CODE_DST_MEMORY, &ins))
+        {
+            vm_emit(ins, program, count, operation.arg1, 0, 0, 0);
+        }
+    }
+    else
+    {
+        vm_instruction ins;
+        if (vm_find_ins(table.inc, sizeof(table.inc), VM_INSTRUCTION_UNARY, VM_INSTRUCTION_CODE_DST_REGISTER, &ins))
+        {
+            vm_emit(ins, program, count, operation.arg1, 0, 0, 0);
+        }
+    }
 }
 
-void vm_dec(const vm_operation& operation, unsigned char* program, int &count)
+void vm_dec(const vm_operation& operation, const std::vector<vm_stack_local>& locals, const vm_instruction_table& table, unsigned char* program, int &count, int stacksize)
 {
-    vm_dec_register(program, count, operation.arg1 & 0xffff);
+    if (operation.flags == VM_OPERATION_FLAGS_REFERENCE1)
+    {
+        vm_instruction ins;
+        if (vm_find_ins(table.dec, sizeof(table.dec), VM_INSTRUCTION_UNARY, VM_INSTRUCTION_CODE_DST_MEMORY, &ins))
+        {
+            vm_emit(ins, program, count, operation.arg1, 0, 0, 0);
+        }
+    }
+    else
+    {
+        vm_instruction ins;
+        if (vm_find_ins(table.dec, sizeof(table.dec), VM_INSTRUCTION_UNARY, VM_INSTRUCTION_CODE_DST_REGISTER, &ins))
+        {
+            vm_emit(ins, program, count, operation.arg1, 0, 0, 0);
+        }
+    }
 }
 
 void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options& options, const vm_instruction_table& table, unsigned char* program, int &count, int& start)
@@ -760,11 +776,11 @@ void vm_generate(const vm_scope& scope, const vm_scope& global, const vm_options
         }
         else if (operation.code == VM_INC)
         {
-            vm_inc(operation, program, count);
+            vm_inc(operation, locals, table, program, count, stacksize);
         }
         else if (operation.code == VM_DEC)
         {
-            vm_dec(operation, program, count);
+            vm_dec(operation, locals, table, program, count, stacksize);
         }
         else if (operation.code == VM_ADD)
         {
