@@ -49,6 +49,9 @@ enum vm_token
     VM_TOKEN_ADDRESS = 0x104,
     VM_TOKEN_BRACKET_OPEN = 0x105,
     VM_TOKEN_BRACKET_CLOSE = 0x106,
+    VM_TOKEN_TYPE_INT8 = 0x200,
+    VM_TOKEN_TYPE_INT16 = 0x201,
+    VM_TOKEN_TYPE_INT32 = 0x202,
     VM_TOKEN_EOF = 0x1000
 };
 
@@ -380,6 +383,18 @@ void get_next_token(const std::string& line, int* pos, vm_token* token)
     else if (strcmp(data, "JUMPEQ") == 0)
     {
         *token = VM_TOKEN_JMPEQ;
+    }
+    else if (strcmp(data, "INT8") == 0)
+    {
+        *token = VM_TOKEN_TYPE_INT8;
+    }
+    else if (strcmp(data, "INT16") == 0)
+    {
+        *token = VM_TOKEN_TYPE_INT16;
+    }
+    else if (strcmp(data, "INT32") == 0)
+    {
+        *token = VM_TOKEN_TYPE_INT32;
     }
     else
     {
@@ -851,48 +866,59 @@ bool read_vm_struct(const std::string& input, int* pos, int* start, vm_token* to
         {
             *start = *pos;
             get_next_token(input, pos, token);
-            if (*token == VM_TOKEN_LITERAL)
+            int size = 0;
+            switch (*token)
             {
-                const char* ptr = input.c_str();
-                int size = strtol(ptr + (*start), 0, 10);
-                
-                if (structure->fieldcount == VM_STRUCTURE_MAX_FIELD)
-                {
-                    // error
-                    return false;
-                }
-
-                *start = *pos;
-                get_next_token(input, pos, token);
-                if (*token != VM_TOKEN_COLON)
-                {
-                    // error
-                    return false;
-                }
-
-                *start = *pos;
-                get_next_token(input, pos, token);
-                if (*token != VM_TOKEN_LITERAL)
-                {
-                    // error
-                    return false;
-                }
-
-                vm_field* field = &structure->fields[structure->fieldcount];
-                field->size = size;
-                field->array_size = 0;
-                if (structure->fieldcount == 0)
-                {
-                    field->offset = 0;
-                }
-                else
-                {
-                    vm_field* prev = &structure->fields[structure->fieldcount - 1];
-                    field->offset = prev->offset + prev->size;
-                }
-                read_vm_field_name(input, *start, field->name);
-                structure->fieldcount++;
+            case VM_TOKEN_TYPE_INT8:
+                size = 1;
+                break;
+            case VM_TOKEN_TYPE_INT16:
+                size = 2;
+                break;
+            case VM_TOKEN_TYPE_INT32:
+                size = 4;
+                break;
+            default:
+                // invalid type
+                return false;
             }
+                
+            if (structure->fieldcount == VM_STRUCTURE_MAX_FIELD)
+            {
+                // error
+                return false;
+            }
+
+            *start = *pos;
+            get_next_token(input, pos, token);
+            if (*token != VM_TOKEN_COLON)
+            {
+                // error
+                return false;
+            }
+
+            *start = *pos;
+            get_next_token(input, pos, token);
+            if (*token != VM_TOKEN_LITERAL)
+            {
+                // error
+                return false;
+            }
+
+            vm_field* field = &structure->fields[structure->fieldcount];
+            field->size = size;
+            field->array_size = 0;
+            if (structure->fieldcount == 0)
+            {
+                field->offset = 0;
+            }
+            else
+            {
+                vm_field* prev = &structure->fields[structure->fieldcount - 1];
+                field->offset = prev->offset + prev->size;
+            }
+            read_vm_field_name(input, *start, field->name);
+            structure->fieldcount++;
         }
         else if (*token == VM_TOKEN_END)
         {

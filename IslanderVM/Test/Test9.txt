@@ -1,8 +1,8 @@
 ; Procs
 
 STRUCTURE type
-    FIELD 4 : x
-    FIELD 4 : y
+    FIELD INT32 : x
+    FIELD INT32 : y
 END
 
 PROC Sum2(type : t1, type : t2, type& : t3):

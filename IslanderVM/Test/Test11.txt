@@ -1,8 +1,8 @@
 ; Procs
 
 STRUCTURE sum
-    FIELD 4 : n
-    FIELD 4 : acc
+    FIELD INT32 : n
+    FIELD INT32 : acc
 END
 
 

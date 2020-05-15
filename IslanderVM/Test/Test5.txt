@@ -1,14 +1,14 @@
 ; Structures
 STRUCTURE Vector3
-    FIELD 4 : x
-    FIELD 4 : y
-    FIELD 2 : z
+    FIELD INT32 : x
+    FIELD INT32 : y
+    FIELD INT16 : z
 END
 
-STRUCTURE MyString
-    FIELD 4 : length
-    FIELD 128 : data
-END
+;STRUCTURE MyString
+;    FIELD INT32 : length
+;    FIELD 128 : data
+;END
 
 DECLARE Vector3 : pos
 STORE1 0

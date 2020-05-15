@@ -1,8 +1,8 @@
 ; Compares
 
 STRUCTURE type
-    FIELD 4 : x
-    FIELD 4 : y
+    FIELD INT32 : x
+    FIELD INT32 : y
 END
 
 DECLARE type : t1
